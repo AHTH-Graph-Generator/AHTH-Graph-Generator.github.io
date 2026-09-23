@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<!-- ============================================================
+     index.html = หน้าแรกของเว็บ (ชื่อไฟล์ต้องเป็น index.html เท่านั้น)
+     ข้อความทุกจุดที่มี data-th / data-en จะสลับภาษาได้
+     ============================================================ -->
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <!-- ทำให้แสดงผลพอดีบนมือถือ -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My First Website</title>
+  <meta name="description" content="เว็บไซต์ทดลองแรกของผม / My first test website">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ===== แถบด้านบน ===== -->
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="#" class="logo">ParZilVal</a>
+      <nav>
+        <a href="#about"   data-th="เกี่ยวกับ" data-en="About">เกี่ยวกับ</a>
+        <a href="#skills"  data-th="ทักษะ"     data-en="Skills">ทักษะ</a>
+        <a href="#contact" data-th="ติดต่อ"    data-en="Contact">ติดต่อ</a>
+      </nav>
+      <button id="lang-btn" class="lang-btn" aria-label="Switch language">EN</button>
+    </div>
+  </header>
+
+  <!-- ===== ส่วนหัวใหญ่ (Hero) ===== -->
+  <section class="hero">
+    <div class="container">
+      <p class="tag" data-th="เว็บทดลอง v1.0" data-en="Test site v1.0">เว็บทดลอง v1.0</p>
+      <h1 data-th="สวัสดีครับ ยินดีต้อนรับสู่เว็บแรกของผม"
+          data-en="Hello, welcome to my first website">สวัสดีครับ ยินดีต้อนรับสู่เว็บแรกของผม</h1>
+      <p class="lead"
+         data-th="เว็บนี้สร้างด้วย HTML + CSS + JavaScript และโฮสต์ฟรีบน GitHub Pages"
+         data-en="Built with HTML + CSS + JavaScript and hosted for free on GitHub Pages">
+         เว็บนี้สร้างด้วย HTML + CSS + JavaScript และโฮสต์ฟรีบน GitHub Pages</p>
+    </div>
+  </section>
+
+  <!-- ===== เกี่ยวกับ ===== -->
+  <section id="about" class="section">
+    <div class="container">
+      <h2 data-th="เกี่ยวกับผม" data-en="About me">เกี่ยวกับผม</h2>
+      <p data-th="ผมเป็น Embedded Software Engineer ทำงานกับไมโครคอนโทรลเลอร์ ตอนนี้กำลังหัดทำเว็บไซต์ตั้งแต่เริ่มต้น"
+         data-en="I'm an embedded software engineer working with microcontrollers, now learning web development from scratch.">
+         ผมเป็น Embedded Software Engineer ทำงานกับไมโครคอนโทรลเลอร์ ตอนนี้กำลังหัดทำเว็บไซต์ตั้งแต่เริ่มต้น</p>
+    </div>
+  </section>
+
+  <!-- ===== ทักษะ (การ์ด 3 ใบ) ===== -->
+  <section id="skills" class="section alt">
+    <div class="container">
+      <h2 data-th="ทักษะ" data-en="Skills">ทักษะ</h2>
+      <div class="cards">
+        <div class="card">
+          <h3>Embedded C</h3>
+          <p data-th="Renesas RA2L1 / RL78, FSP, IAR" data-en="Renesas RA2L1 / RL78, FSP, IAR">Renesas RA2L1 / RL78, FSP, IAR</p>
+        </div>
+        <div class="card">
+          <h3>VB.NET</h3>
+          <p data-th="โปรแกรม Windows สำหรับงานบริการ" data-en="Windows tools for service work">โปรแกรม Windows สำหรับงานบริการ</p>
+        </div>
+        <div class="card">
+          <h3>Web</h3>
+          <p data-th="กำลังเรียนรู้ HTML / CSS / JS" data-en="Learning HTML / CSS / JS">กำลังเรียนรู้ HTML / CSS / JS</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== ติดต่อ ===== -->
+  <section id="contact" class="section">
+    <div class="container">
+      <h2 data-th="ติดต่อ" data-en="Contact">ติดต่อ</h2>
+      <!-- แก้ลิงก์ GitHub ให้เป็นของคุณ -->
+      <p><a class="btn" href="https://github.com/" target="_blank" rel="noopener">GitHub</a></p>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container">
+      <p>© <span id="year"></span> ParZilVal_M</p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
