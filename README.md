@@ -1,1 +1,1 @@
-# -AHTH-Graph-Generator.github.io
+# AHTH-Graph-Generator.github.io
