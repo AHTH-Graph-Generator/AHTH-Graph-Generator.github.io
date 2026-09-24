@@ -1,0 +1,5 @@
+# ไฟล์ log จริง ห้ามขึ้น repo สาธารณะ
+*.log
+!samples/sample.log
+!samples/broken/*.log
+samples/private/
