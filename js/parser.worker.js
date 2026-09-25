@@ -8,8 +8,8 @@
 // ============================================================
 
 import {
-  SENSORS, GAP_MEDIAN_FACTOR, TIME_COLUMN, TEMP_SCALE, POWER, SOFTWARE_COLUMNS,
-  findColumn, formatSoftware, normalizeName, parseMetadata, parseIntStrict,
+  SENSORS, GAP_MEDIAN_FACTOR, TIME_COLUMN, TEMP_SCALE, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN,
+  findColumn, formatSoftware, toSigned8, heaterCategory, normalizeName, parseMetadata, parseIntStrict,
   parseDateParts, dateOrderHint, defaultDateOrder, partsToEpoch,
 } from "./logformat.js";
 import { readTextRecords, readXlsxRecords, isZipFile, XlsxError } from "./sources.js";
@@ -49,6 +49,17 @@ class GrowableArray {
 
 const isBlank = (fields) => fields.every((f) => f.trim() === "");
 
+// ข้อความ metadata จากบรรทัดแรก: ช่องที่มี MachineINIFile (บางไฟล์มีช่องอื่นต่อท้าย เช่น "613103101-V98R14	Not need now")
+// ถ้าช่องนั้นไม่มีค่าหลัง "=" (CSV/xlsx แยกเป็น 2 ช่อง) ใช้ช่องถัดไปที่ไม่ว่างเป็นค่า
+function metadataText(fields) {
+  const i = fields.findIndex((f) => /MachineINIFile/i.test(f));
+  if (i < 0) return fields.filter((f) => f.trim() !== "").join(" ");
+  const text = fields[i].trim();
+  if (/=\s*\S/.test(text)) return text;
+  const next = fields.slice(i + 1).find((f) => f.trim() !== "");
+  return next ? `${text} ${next.trim()}` : text;
+}
+
 // ---------- หาคอลัมน์จาก header ----------
 function buildColumnMap(names, lineNo) {
   let timeIdx = findColumn(names, TIME_COLUMN);
@@ -65,8 +76,19 @@ function buildColumnMap(names, lineNo) {
   }
   if (sensors.length === 0) throw new ParseError("noSensorColumns", { line: lineNo });
 
-  const powerIdx = findColumn(names, POWER.column);
-  if (powerIdx < 0) missing.push(POWER.column);
+  // คอลัมน์สถานะ (Power, First ice, Ice making mode/error ...) — ไม่มีก็ข้ามได้
+  const statuses = [];
+  for (const item of STATUS_ITEMS) {
+    if (!item.column) continue;
+    const idx = findColumn(names, item.column);
+    if (idx < 0) missing.push(item.column);
+    else statuses.push({ key: item.key, idx, signed8: !!item.signed8, temp: !!item.temp });
+    // heater: คอลัมน์ state คู่กัน → เก็บเป็น "<key>State" (ค่า HEATER_STATE)
+    if (item.stateColumn) {
+      const stateIdx = findColumn(names, item.stateColumn);
+      if (stateIdx >= 0) statuses.push({ key: `${item.key}State`, idx: stateIdx, heaterState: true });
+    }
+  }
 
   // คอลัมน์ซอฟต์แวร์: ต้องมีครบทุกคอลัมน์ ไม่งั้นไม่แสดง
   const softwareNames = [...SOFTWARE_COLUMNS.no, SOFTWARE_COLUMNS.version, SOFTWARE_COLUMNS.revision];
@@ -74,12 +96,15 @@ function buildColumnMap(names, lineNo) {
   const softwareMissing = softwareNames.filter((_, i) => softwareIdx[i] < 0);
   missing.push(...softwareMissing);
 
+  const workModeIdx = findColumn(names, WORK_MODE_COLUMN);
+  if (workModeIdx < 0) missing.push(WORK_MODE_COLUMN);
+
   // แถวข้อมูลต้องมีคอลัมน์ถึงคอลัมน์สุดท้ายที่ใช้ (xlsx / CSV ตัดช่องว่างท้ายแถวทิ้งได้)
-  const used = [timeIdx, powerIdx, ...sensors.flatMap((s) => [s.idx, s.errIdx]), ...softwareIdx];
+  const used = [timeIdx, ...statuses.map((s) => s.idx), ...sensors.flatMap((s) => [s.idx, s.errIdx]), ...softwareIdx];
   const minColumns = Math.max(...used) + 1;
 
   return {
-    timeIdx, sensors, missing, minColumns, powerIdx,
+    timeIdx, sensors, missing, minColumns, statuses, workModeIdx,
     softwareIdx: softwareMissing.length ? null : softwareIdx,
   };
 }
@@ -97,7 +122,8 @@ function samplingSeconds(times) {
   return sorted[sorted.length >> 1];
 }
 
-function insertGaps(times, columns, softwareChanges) {
+// changeLists: [[{ index, ... }]] รายการจุดเปลี่ยน (software / work mode) — index ถูกเลื่อนตามจุดว่างที่แทรก
+function insertGaps(times, columns, changeLists) {
   const sampling = samplingSeconds(times);
   const threshold = Number.isNaN(sampling) ? Infinity : GAP_MEDIAN_FACTOR * sampling;
   let gaps = 0;
@@ -106,16 +132,17 @@ function insertGaps(times, columns, softwareChanges) {
 
   const outTimes = new Float64Array(times.length + gaps);
   const outColumns = columns.map((c) => new Float32Array(times.length + gaps));
-  let j = 0, change = 0;
+  let j = 0;
+  const pointers = changeLists.map(() => 0);
   for (let i = 0; i < times.length; i++) {
     if (i > 0 && times[i] - times[i - 1] > threshold) {
       outTimes[j] = times[i - 1] + 1;
       outColumns.forEach((c) => { c[j] = NaN; });
       j++;
     }
-    while (change < softwareChanges.length && softwareChanges[change].index === i) {
-      softwareChanges[change++].index = j;
-    }
+    changeLists.forEach((list, k) => {
+      while (pointers[k] < list.length && list[pointers[k]].index === i) list[pointers[k]++].index = j;
+    });
     outTimes[j] = times[i];
     columns.forEach((c, k) => { outColumns[k][j] = c[i]; });
     j++;
@@ -132,8 +159,10 @@ function createParser() {
     times: new GrowableArray(Float64Array),
     values: null,          // GrowableArray ต่อเซนเซอร์
     nonZero: null,         // เซนเซอร์นี้มีค่า ≠ 0 หรือไม่
-    power: new GrowableArray(Float32Array), // ค่าดิบ ProTestTimer (NaN = ไม่มี)
+    statusValues: null,    // GrowableArray ต่อคอลัมน์สถานะ (ค่าดิบ, NaN = ไม่มี)
     softwareChanges: [],   // [{ index, time, label }] จุดที่เวอร์ชันซอฟต์แวร์เริ่ม/เปลี่ยน
+    workModeChanges: [],   // [{ index, time, value }] จุดที่ WorkMode เริ่ม/เปลี่ยน
+    lastWorkMode: null,
     lastSoftware: null,
     dateOrder: null,       // "DMY" / "MDY" — ตัดสินจากข้อมูล
     pendingRows: [],       // แถวที่รอการตัดสิน dateOrder
@@ -153,10 +182,10 @@ function createParser() {
     }
   };
 
-  const pushRow = (time, rowValues, power) => {
+  const pushRow = (time, rowValues, statusValues) => {
     state.times.push(time);
     rowValues.forEach((v, i) => state.values[i].push(v));
-    state.power.push(power);
+    statusValues.forEach((v, i) => state.statusValues[i].push(v));
   };
 
   // อ่านเวอร์ชันซอฟต์แวร์ของแถว (null ถ้าไม่มีคอลัมน์หรือค่าเพี้ยน → ถือว่าเป็นเวอร์ชันเดิม)
@@ -172,6 +201,7 @@ function createParser() {
     state.columns = buildColumnMap(fields, lineNo);
     state.values = state.columns.sensors.map(() => new GrowableArray(Float32Array));
     state.nonZero = state.columns.sensors.map(() => false);
+    state.statusValues = state.columns.statuses.map(() => new GrowableArray(Float32Array));
   }
 
   // ---------- วันที่: รอจนรู้ว่า D/M หรือ M/D แล้วค่อยประมวลผลแถว ----------
@@ -214,8 +244,21 @@ function createParser() {
       if (raw !== 0 && err === 0) state.nonZero[i] = true;
     }
 
-    const power = state.columns.powerIdx >= 0 ? parseIntStrict(fields[state.columns.powerIdx]) : NaN;
+    const statusValues = state.columns.statuses.map((st) => {
+      if (st.heaterState) return heaterCategory(fields[st.idx]);
+      const v = parseIntStrict(fields[st.idx]);
+      if (st.temp) return v * TEMP_SCALE;   // ค่าตัด/ต่อ 0.1 °C → °C
+      return st.signed8 ? toSigned8(v) : v; // เช่น Freezer set 234 → -22
+    });
     if (time === state.lastTime) state.duplicateCount++;
+
+    if (state.columns.workModeIdx >= 0) {
+      const mode = parseIntStrict(fields[state.columns.workModeIdx]);
+      if (!Number.isNaN(mode) && mode !== state.lastWorkMode) {
+        state.workModeChanges.push({ index: state.times.length, time, value: mode });
+        state.lastWorkMode = mode;
+      }
+    }
 
     const software = readSoftware(fields);
     if (software !== null && software !== state.lastSoftware) {
@@ -223,7 +266,7 @@ function createParser() {
       state.lastSoftware = software;
     }
 
-    pushRow(time, rowValues, power);
+    pushRow(time, rowValues, statusValues);
     state.lastTime = time;
     state.rowCount++;
   }
@@ -233,7 +276,7 @@ function createParser() {
     if (isBlank(fields)) return; // บรรทัดว่าง (เช่นท้ายไฟล์) ไม่นับเป็นแถวเสีย
     if (lineNo === 1 || (state.ini === null && !state.columns && !state.metadataMissing)) {
       // บรรทัดแรกที่มีข้อมูล: metadata หรือ header (ถ้าไม่มี metadata)
-      state.ini = parseMetadata(fields.filter((f) => f.trim() !== "").join(" "));
+      state.ini = parseMetadata(metadataText(fields));
       if (state.ini !== null) return;
       if (findColumn(fields, TIME_COLUMN) >= 0) {
         state.metadataMissing = true;
@@ -257,8 +300,9 @@ function createParser() {
       throw new ParseError("noData", { skipped: state.skippedCount, line: first ? first.line : null });
     }
 
-    const rawColumns = [...state.values.map((v) => v.toArray()), state.power.toArray()];
-    const gapped = insertGaps(state.times.toArray(), rawColumns, state.softwareChanges);
+    const sensorCount = state.values.length;
+    const rawColumns = [...state.values.map((v) => v.toArray()), ...state.statusValues.map((v) => v.toArray())];
+    const gapped = insertGaps(state.times.toArray(), rawColumns, [state.softwareChanges, state.workModeChanges]);
     const series = state.columns.sensors.map((s, i) => ({
       key: s.key,
       values: gapped.columns[i],
@@ -271,8 +315,10 @@ function createParser() {
       times: gapped.times,
       series,
       missing: state.columns.missing,
-      power: state.columns.powerIdx >= 0 ? gapped.columns[gapped.columns.length - 1] : null,
+      // { key: Float32Array ค่าดิบ } เฉพาะคอลัมน์สถานะที่มีในไฟล์
+      status: Object.fromEntries(state.columns.statuses.map((st, i) => [st.key, gapped.columns[sensorCount + i]])),
       softwareChanges: state.softwareChanges,
+      workModeChanges: state.workModeChanges,
       rowCount: state.rowCount,
       gapCount: gapped.gapCount,
       gapThreshold: gapped.gapThreshold,
@@ -319,7 +365,7 @@ self.onmessage = async ({ data }) => {
     await readRecords(data.file, data.name || "", parser.onRecord);
     const result = parser.finish();
     const transfer = [result.times.buffer, ...result.series.map((s) => s.values.buffer)];
-    if (result.power) transfer.push(result.power.buffer);
+    Object.values(result.status).forEach((values) => transfer.push(values.buffer));
     postMessage({ type: "done", result }, transfer);
   } catch (err) {
     if (err instanceof ParseError) {

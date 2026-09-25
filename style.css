@@ -4,6 +4,7 @@
    ============================================================ */
 
 :root {
+  color-scheme: light;
   --bg: #f3f5f8;
   --surface: #ffffff;
   --text: #1c2430;
@@ -17,9 +18,9 @@
   --error-border: #e5776b;
 }
 
-/* โหมดมืดอัตโนมัติ ตามการตั้งค่าเครื่องผู้ใช้ */
-@media (prefers-color-scheme: dark) {
-  :root {
+/* โหมดมืด — ตั้งด้วยปุ่มสลับ (js/theme.js) ค่าเริ่มต้นตามเครื่องผู้ใช้ */
+:root[data-theme="dark"] {
+    color-scheme: dark;
     --bg: #0f141b;
     --surface: #161d27;
     --text: #e6ebf2;
@@ -31,7 +32,6 @@
     --warn-border: #8a6d1c;
     --error-bg: #3b1d1a;
     --error-border: #9a3b31;
-  }
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -69,6 +69,7 @@ body {
   padding: 4px 12px; border-radius: 6px; cursor: pointer; font-weight: 600;
 }
 .lang-btn:hover { border-color: var(--primary); }
+.topbar-buttons { display: flex; gap: 8px; }
 
 main { padding: 20px 16px 40px; }
 
@@ -148,15 +149,61 @@ main { padding: 20px 16px 40px; }
 .chart { width: 100%; min-height: 300px; }
 .chart .uplot { font-family: inherit; }
 .chart .u-select { background: rgba(224, 138, 0, 0.18); border-left: 1px solid #e08a00; border-right: 1px solid #e08a00; }
-.chart .zoom-box {
-  position: absolute; top: 0; bottom: 0; pointer-events: none;
-  background: rgba(31, 111, 235, 0.15); border: 1px dashed var(--primary);
+/* ป้ายระยะเวลาของช่วงที่เลือก |◀── 30 นาที ──▶| */
+.chart .sel-span {
+  position: absolute; top: 4px; height: 18px; pointer-events: none;
+  display: flex; align-items: center;
+  border-left: 1px solid #e08a00; border-right: 1px solid #e08a00;
+  color: #e08a00; font-size: 0.75rem; font-weight: 600; white-space: nowrap;
 }
+.chart .sel-line { flex: 1; min-width: 4px; border-top: 1px solid #e08a00; }
+.chart .sel-arrow { font-size: 0.55rem; line-height: 1; }
+.chart .sel-text { padding: 0 6px; background: var(--surface); border-radius: 4px; }
+.chart .u-over.panning { cursor: grabbing; }
 
 /* ----- ตาราง stats ----- */
 .cursor-time { margin-bottom: 8px; }
 .cursor-sep { margin: 0 6px; color: var(--muted); }
 .table-wrap { overflow-x: auto; }
+
+/* ----- layout กราฟ + กล่องตาราง ----- */
+/* จอแคบ/แนวตั้ง: ไม่สนช่อง (slot) — กล่องเรียงลงมาตาม order ที่ main.js ใส่ไว้
+   กราฟ → SENSOR → COMPONENT → SYSTEM → CONTROL PANEL → ERROR → OTHER */
+.dashboard { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.dashboard .panel { margin-bottom: 0; }
+.slot { display: contents; }
+.group-card { padding: 8px 12px 10px; }
+.group-card .stats tr.group th { padding-top: 6px; }
+.chart-panel .cursor-time { margin: 8px 0 0; }
+
+/* จอแนวนอนกว้าง: ตารางวางรอบกราฟ — ซ้าย (SENSOR, CONTROL PANEL) / กราฟ / ขวา (COMPONENT, SYSTEM),
+   ใต้กราฟ = ERROR + OTHER คู่กัน */
+@media (min-width: 1400px) and (orientation: landscape) {
+  /* หัวเว็บ / เนื้อหา / ท้ายเว็บ ใช้ความกว้างเต็มจอเหมือนกัน */
+  .container { max-width: none; padding-left: 24px; padding-right: 24px; }
+  .dashboard {
+    grid-template-columns: minmax(320px, 480px) minmax(0, 1fr) minmax(320px, 480px);
+    grid-template-areas:
+      "left chart right"
+      "left below right";
+    align-items: start;
+  }
+  .slot { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .slot:empty { display: none; }
+  .chart-panel { grid-area: chart; }
+  .slot-left   { grid-area: left; }
+  .slot-right  { grid-area: right; }
+  .slot-below  { grid-area: below; flex-direction: row; align-items: flex-start; }
+  .slot-below > .group-card { flex: 1; min-width: 0; }
+  /* กล่องข้างกราฟแคบ: ให้ชื่อยาวขึ้นบรรทัดใหม่ได้ ตัวเลขชิดกันขึ้น */
+  .group-card .stats th, .group-card .stats td { padding: 3px 4px; }
+  .group-card .stats tbody td { line-height: 1.4; }
+  /* กล่องแคบ: หัวข้อ (SENSOR ฯลฯ) ขนาดเดิม — รายการข้างใต้ + หัวคอลัมน์ตัวเล็กลง ให้อยู่บรรทัดเดียว */
+  .group-card .stats tr.columns th { font-size: 0.7rem; white-space: nowrap; }
+  .group-card .stats tbody td { font-size: 0.8rem; }
+  .group-card .stats .series-toggle { gap: 6px; }
+  .group-card .stats .item-note { font-size: 0.7rem; }
+}
 .stats { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .stats th, .stats td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
 .stats th { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
@@ -166,6 +213,12 @@ main { padding: 20px 16px 40px; }
   padding-top: 14px; font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase;
   color: var(--primary); border-bottom: 1px solid var(--border);
 }
+.group-toggle {
+  margin-left: 10px; padding: 0 8px; border-radius: 999px;
+  font: inherit; font-size: 0.7rem; letter-spacing: 0; text-transform: none;
+  color: var(--muted); background: transparent; border: 1px solid var(--border); cursor: pointer;
+}
+.group-toggle:hover { color: var(--primary); border-color: var(--primary); }
 .stats-scope { margin-top: 8px; font-size: 0.85rem; color: var(--muted); }
 .stats-scope.selected { color: var(--text); }
 .stats-scope.selected #stats-scope-text { border-left: 3px solid #e08a00; padding-left: 8px; }
@@ -173,7 +226,8 @@ main { padding: 20px 16px 40px; }
 
 .series-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .series-toggle input { width: 16px; height: 16px; accent-color: var(--primary); }
-.swatch { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
+.swatch { width: 16px; height: 10px; flex: none; }
+.toggle-spacer { width: 40px; flex: none; } /* แทน checkbox + ภาพลักษณะ ในแถวที่ไม่มีในกราฟ */
 
 .footer { border-top: 1px solid var(--border); padding: 20px 0; color: var(--muted); font-size: 0.9rem; }
 

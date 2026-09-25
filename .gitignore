@@ -3,3 +3,10 @@
 !samples/sample.log
 !samples/broken/*.log
 samples/private/
+
+# ไฟล์ข้อมูลจริงแบบ .xlsx / .csv (อนุญาตเฉพาะไฟล์ตัวอย่างข้อมูลปลอม) และไฟล์ล็อกของ Excel
+*.xlsx
+*.csv
+!samples/sample.xlsx
+!samples/sample.csv
+~$*

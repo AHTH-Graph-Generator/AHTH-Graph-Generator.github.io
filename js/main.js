@@ -2,13 +2,14 @@
 // main.js — จุดเริ่มต้นของหน้าเว็บ ผูก UI กับ parser / chart / stats
 // ============================================================
 
-import { SENSORS, POWER, formatDateTime, toInputValue, fromInputValue } from "./logformat.js";
+import { SENSORS, STATUS_ITEMS, VALVE_POSITIONS, DAMPER_OPEN, HEATER_STATE, formatWorkMode, formatDateTime, toInputValue, fromInputValue } from "./logformat.js";
 import { indexRange, computeStats } from "./stats.js";
 import { createChart, toPlotValues } from "./chart.js";
 import { t, getLang, initLanguage, onLanguageChange } from "./i18n.js";
+import { initTheme, onThemeChange } from "./theme.js";
 
 // เวอร์ชันที่แสดงบนหัวเว็บ — เปลี่ยนตรงนี้ที่เดียวทุกครั้งที่ release
-const APP_VERSION = "1.0";
+const APP_VERSION = "1.5";
 
 const SAMPLE_URL = "samples/sample.log";
 
@@ -40,21 +41,44 @@ const MSG = {
   reason_timeBackwards: { th: "เวลาย้อนกลับ \"{detail}\"", en: "time goes backwards \"{detail}\"" },
   lineN:          { th: "บรรทัด {line}", en: "line {line}" },
   noSensorData:   { th: "(0 ทั้งไฟล์)", en: "(all zero)" },
+  notPresent:     { th: "ไม่มี", en: "N/A" },
+  hideGroup:      { th: "ซ่อน", en: "Hide" },
+  durDay:         { th: "{n} วัน", en: "{n} d" },
+  durHour:        { th: "{n} ชม.", en: "{n} h" },
+  durMinute:      { th: "{n} นาที", en: "{n} min" },
+  durSecond:      { th: "{n} วินาที", en: "{n} s" },
+  showGroup:      { th: "แสดง", en: "Show" },
+  colName:        { th: "ชื่อ", en: "Name" },
+  colCursor:      { th: "ค่า ณ เคอร์เซอร์", en: "At cursor" },
+  colMin:         { th: "Min", en: "Min" },
+  colMax:         { th: "Max", en: "Max" },
+  colAvg:         { th: "เฉลี่ย", en: "Average" },
   scopeView:      { th: "Min / Max / เฉลี่ย ของช่วงที่แสดงบนกราฟ: {from} → {to} (°C)", en: "Min / Max / Average of the visible range: {from} → {to} (°C)" },
-  scopeSelection: { th: "Min / Max / เฉลี่ย ของช่วงที่เลือก: {from} → {to} (°C)", en: "Min / Max / Average of the selected range: {from} → {to} (°C)" },
+  scopeSelection: { th: "Min / Max / เฉลี่ย ของช่วงที่เลือก: {from} → {to} ({dur}) (°C)", en: "Min / Max / Average of the selected range: {from} → {to} ({dur}) (°C)" },
 };
 
-// หัวข้อในตาราง (เรียงตามลำดับนี้) — meta.group ไม่ระบุ = "sensor"
+// หัวข้อในตาราง (เรียงตามลำดับนี้ — ผู้ใช้กำหนด) — meta.group ไม่ระบุ = "sensor"
+// slot = ตำแหน่งกล่องบนจอแนวนอนกว้าง: left ซ้ายกราฟ / right ขวากราฟ / below ใต้กราฟ
+//        (ในช่องเดียวกันเรียงตามลำดับในรายการนี้) — จอแคบ/แนวตั้งเรียงลงมาตามลำดับรายการนี้ ไม่สนช่อง
+// รายการในแต่ละหัวข้อเรียงตามตัวอักษรของชื่อ (ดู renderStatsTable)
 const TABLE_GROUPS = [
-  { key: "sensor", th: "เซนเซอร์", en: "Sensor" },
-  { key: "other",  th: "อื่นๆ",    en: "Other" },
+  { key: "sensor",    slot: "left",  th: "เซนเซอร์",   en: "Sensor" },
+  { key: "component", slot: "right", th: "ชิ้นส่วน",    en: "Component" },
+  { key: "system",    slot: "right", th: "ระบบ",       en: "System" },
+  { key: "temp",      slot: "right", th: "Temp work confirm", en: "Temp work confirm" },
+  { key: "control",   slot: "left",  th: "แผงควบคุม",  en: "Control panel" },
+  { key: "heater",    slot: "left",  th: "Heater control", en: "Heater control" },
+  { key: "error",     slot: "below", th: "ข้อผิดพลาด", en: "Error" },
+  { key: "other",     slot: "below", th: "อื่นๆ",      en: "Other" },
 ];
+const SLOTS = ["left", "right", "below"];
 
 const INFO_LABELS = {
   file:      { th: "ไฟล์", en: "File" },
   ini:       { th: "รุ่น / INI", en: "Model / INI" },
   period:    { th: "ช่วงเวลา", en: "Period" },
   software:  { th: "ซอฟต์แวร์", en: "Software" },
+  workMode:  { th: "Refrigerator Work Mode", en: "Refrigerator Work Mode" },
   sampling:  { th: "Sampling (อัตโนมัติ)", en: "Sampling (auto)" },
 };
 
@@ -66,22 +90,40 @@ const el = {
   message: $("message"), result: $("result"), fileInfo: $("file-info"),
   rangeStart: $("range-start"), rangeEnd: $("range-end"),
   rangeApply: $("range-apply"), zoomReset: $("zoom-reset"),
-  chart: $("chart"), statsBody: $("stats-body"), cursorTime: $("cursor-time"),
-  cursorSoftware: $("cursor-software"),
+  chart: $("chart"), cursorTime: $("cursor-time"),
+  cursorSoftware: $("cursor-software"), cursorWorkMode: $("cursor-workmode"),
   statsScope: $("stats-scope"), statsScopeText: $("stats-scope-text"), clearSelection: $("clear-selection"),
 };
 
 // ---------- สถานะของหน้า ----------
 let worker = null;
-let loaded = null;     // { fileName, result, sensors: [{ meta, values, show }] }
+let loadToken = 0; // เพิ่มทุกครั้งที่เปิดไฟล์ใหม่ (กันงานของไฟล์เก่าที่ยังทำไม่เสร็จ)
+// loaded.items = แถวในตาราง 1 แถวต่อ 1 รายการ:
+//   { meta, kind: "sensor" | "line" | "marker", raw, values?, show, allZero, seriesIndex?, markerIndex? }
+let loaded = null;
 let chart = null;
-let statRows = [];      // <tr> ของแต่ละเส้น ตาม index เดียวกับ loaded.sensors
-let lastMessage = null; // { kind, items: [{ msg, params }] } เก็บไว้แปลภาษาใหม่ได้
+let statRows = [];               // <tr> ของแต่ละรายการ ตาม index เดียวกับ loaded.items
+const collapsedGroups = new Set(); // หัวข้อที่ผู้ใช้กดซ่อน (ค่าเริ่มต้น: เปิดหมด)
+let lastMessage = null;          // { kind, items: [{ msg, params }] } เก็บไว้แปลภาษาใหม่ได้
 
 const fmtTemp = (v) => (Number.isNaN(v) || v == null ? "–" : v.toFixed(1));
 const fmtRaw = (v, digits = 0) => (Number.isNaN(v) || v == null ? "–" : v.toFixed(digits));
-const fmtOnOff = (v) => (Number.isNaN(v) ? "–" : v === 0 ? "OFF" : "ON");
+const fmtPct = (v) => (Number.isNaN(v) || v == null ? "–" : `${Math.round(v)}%`);
 const fmtInt = (n) => n.toLocaleString(getLang() === "th" ? "th-TH" : "en-US");
+
+// ระยะเวลา เช่น 1800 → "30 นาที", 5400 → "1 ชม. 30 นาที", 45 → "45 วินาที"
+function fmtDuration(seconds) {
+  let s = Math.round(seconds);
+  const d = Math.floor(s / 86400); s -= d * 86400;
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60); s -= m * 60;
+  const parts = [];
+  if (d) parts.push(t(MSG.durDay, { n: d }));
+  if (h) parts.push(t(MSG.durHour, { n: h }));
+  if (m) parts.push(t(MSG.durMinute, { n: m }));
+  if (s && !d && !h) parts.push(t(MSG.durSecond, { n: s }));
+  return parts.length ? parts.join(" ") : t(MSG.durSecond, { n: 0 });
+}
 
 // ---------- ข้อความแจ้งผู้ใช้ ----------
 function renderMessage() {
@@ -110,6 +152,7 @@ const hideProgress = () => { el.progress.hidden = true; };
 
 // ---------- โหลดไฟล์ ----------
 export function loadFile(file, fileName = file.name) {
+  loadToken++;
   if (worker) worker.terminate();
   const notes = [];
   if (fileName && !/\.(log|txt|csv|xlsx|xls)$/i.test(fileName)) notes.push({ msg: MSG.wrongType, params: { name: fileName } });
@@ -156,22 +199,6 @@ function onParsed(fileName, result, notes) {
   finishWorker();
   showProgress(100, MSG.preparing);
 
-  const sensors = result.series.map((s) => ({
-    meta: SENSORS.find((m) => m.key === s.key),
-    raw: s.values,
-    values: toPlotValues(s.values),
-    allZero: s.allZero,
-    show: !s.allZero, // 0 ทั้งไฟล์ → ซ่อนเป็นค่าเริ่มต้น
-  }));
-  // เส้น Power (สถานะ ไม่ใช่อุณหภูมิ → ไม่คำนวณ Min/Max/Avg)
-  if (result.power) {
-    sensors.push({
-      meta: POWER, raw: result.power, values: toPowerValues(result.power),
-      allZero: false, show: true, isStatus: true,
-    });
-  }
-  loaded = { fileName, result, sensors };
-
   const items = [...notes];
   if (result.metadataMissing) items.push({ msg: MSG.metadataMissing });
   if (result.skippedCount > 0) items.push(...skippedMessages(result));
@@ -180,26 +207,149 @@ function onParsed(fileName, result, notes) {
   }
   showMessage("warn", items);
 
-  // ให้ progress แสดง "กำลังสร้างกราฟ" ก่อนแล้วค่อยวาด
-  setTimeout(() => {
-    renderResult();
+  // แบ่งงานหลังอ่านไฟล์เป็นหลายช่วง (เตรียมข้อมูล → ตาราง → กราฟ) ให้หน้าเว็บตอบสนองได้ระหว่างทาง
+  // และให้ progress "กำลังสร้างกราฟ" ขึ้นก่อน
+  // ถ้าผู้ใช้เปิดไฟล์ใหม่ระหว่างนี้ (loadToken เปลี่ยน) → หยุด ไม่ให้ผลของไฟล์เก่าทับ
+  const token = loadToken;
+  const nextTask = () => new Promise((resolve) => setTimeout(resolve, 0));
+  (async () => {
+    await nextTask();
+    if (token !== loadToken) return;
+    loaded = { fileName, result, items: buildItems(result) };
+    await nextTask();
+    if (token !== loadToken) return;
+    el.result.hidden = false;
+    renderFileInfo();
+    renderStatsTable();
+    await nextTask();
+    if (token !== loadToken) return;
+    buildChart();
     hideProgress();
-  }, 0);
+  })();
 }
 
-// ProTestTimer = 0 → POWER.yWhenZero, ค่าอื่น → POWER.yOtherwise, NaN → null (ตัดเส้น)
-function toPowerValues(raw) {
-  return Array.from(raw, (v) => (Number.isNaN(v) ? null : v === 0 ? POWER.yWhenZero : POWER.yOtherwise));
+// เซนเซอร์นี้มีจริงในตู้ไหม (มีคอลัมน์และไม่เป็น 0 ทั้งไฟล์)
+function hasSensor(result, key) {
+  const sensor = result.series.find((s) => s.key === key);
+  return !!sensor && !sensor.allZero;
+}
+
+const isAllZero = (raw) => raw.every((v) => v === 0 || Number.isNaN(v));
+
+// รายการทั้งหมดในตาราง/กราฟ: เซนเซอร์ + รายการสถานะที่มีข้อมูลในไฟล์
+function buildItems(result) {
+  const sensors = result.series.map((s) => ({
+    meta: SENSORS.find((m) => m.key === s.key),
+    kind: "sensor",
+    raw: s.values,
+    values: toPlotValues(s.values),
+    allZero: s.allZero,
+    show: !s.allZero, // 0 ทั้งไฟล์ → ซ่อนเป็นค่าเริ่มต้น
+  }));
+  const statuses = STATUS_ITEMS.flatMap((meta) => {
+    // จุดเปลี่ยน software / work mode: ไม่มีคอลัมน์ค่า มาจากรายการจุดเปลี่ยนที่ worker หาไว้
+    if (meta.changes) {
+      return result[meta.changes].length ? [{ meta, kind: "marker", raw: null, show: true }] : [];
+    }
+    const raw = result.status[meta.key];
+    if (!raw) return [];
+    if (meta.heater) return [buildHeaterItem(meta, raw, result.status[`${meta.key}State`], result.sampling)];
+    // ไม่มีชิ้นส่วนนี้ในตู้ (เช่นไม่มี Ice maker / Refrigerator Evap / พัดลม 0 ทั้งไฟล์) → ไม่เลือกเป็นค่าเริ่มต้น
+    const allZero = !!meta.allZeroMeansAbsent && isAllZero(raw);
+    const absent = allZero
+      || (!!meta.requires && !hasSensor(result, meta.requires))
+      || (!!meta.absentWith && hasSensor(result, meta.absentWith));
+    return [{
+      meta, kind: meta.kind, raw, allZero, absent,
+      show: !absent && !meta.defaultOff,
+      values: meta.temp ? toPlotValues(raw) : meta.kind === "line" ? toStepValues(raw, meta) : null,
+    }];
+  });
+  return [...sensors, ...statuses];
+}
+
+// ---------- Heater ----------
+// ทำงาน (ON) = สั่ง ON (heaterX ≠ 0) หรือ state เป็น HeaterAOn — ช่วง On ตัวสั่งงานจะ ON/OFF สลับแบบ duty
+// sampling ≤ 1 วินาที → คำนวณ duty = ON / (ON + OFF) × 100 ของแต่ละช่วงที่ทำงาน, มากกว่านั้นแสดงแค่ ON/OFF
+const HEATER_DUTY_MAX_SAMPLING = 1;
+
+function buildHeaterItem(meta, out, state, sampling) {
+  const n = out.length;
+  const effective = new Float32Array(n);
+  let sawState = false, allNone = true;
+  for (let i = 0; i < n; i++) {
+    const o = out[i], s = state ? state[i] : NaN;
+    if (!Number.isNaN(s)) { sawState = true; if (s !== HEATER_STATE.NONE) allNone = false; }
+    if (Number.isNaN(o) && Number.isNaN(s)) { effective[i] = NaN; continue; }
+    effective[i] = (o > 0 || s === HEATER_STATE.ON) ? 1 : 0;
+  }
+  // ไม่มี heater นี้ = ตัวสั่งงานเป็น 0 ทั้งไฟล์ (ไม่เคย ON จริง ไม่ว่า state จะเป็นอะไร) หรือ state เป็น None ทั้งไฟล์
+  const absent = isAllZero(out) || (sawState && allNone);
+  const duty = !Number.isNaN(sampling) && sampling <= HEATER_DUTY_MAX_SAMPLING ? heaterDuty(out, effective) : null;
+  return {
+    meta, kind: "line", raw: out, effective, duty, absent, allZero: false, show: !absent && !meta.defaultOff,
+    values: toStepValues(effective, meta),
+  };
+}
+
+// duty (%) ของแต่ละแถว: แถวที่ทำงาน = duty ของช่วงทำงานต่อเนื่องนั้น, แถวที่ไม่ทำงาน = 0
+function heaterDuty(out, effective) {
+  const duty = new Float32Array(effective.length).fill(NaN);
+  let i = 0;
+  while (i < effective.length) {
+    if (effective[i] !== 1) { duty[i] = effective[i] === 0 ? 0 : NaN; i++; continue; }
+    let j = i, on = 0, total = 0;
+    for (; j < effective.length && effective[j] === 1; j++) {
+      if (Number.isNaN(out[j])) continue;
+      total++;
+      if (out[j] > 0) on++;
+    }
+    const pct = total ? (on / total) * 100 : 100; // ON โดยไม่มี OFF เลย = 100%
+    duty.fill(pct, i, j);
+    i = j;
+  }
+  return duty;
+}
+
+// เส้นขั้นบันได (NaN → null = ตัดเส้น)
+//   meta.rawRange + yRange: เทียบสัดส่วน เช่น Compressor 0–180 → Y -55 ถึง -30
+//   ไม่งั้น: ค่า 0 → meta.yWhenZero, ค่าอื่น → meta.yOtherwise (Power)
+// (ใช้ loop ธรรมดา ไม่ใช้ Array.from(raw, fn) — เร็วกว่า ~6 เท่ากับข้อมูลหลายแสนจุด)
+function toStepValues(raw, meta) {
+  const out = new Array(raw.length);
+  if (meta.rawRange) {
+    const [r0, r1] = meta.rawRange, [y0, y1] = meta.yRange;
+    const k = (y1 - y0) / (r1 - r0);
+    for (let i = 0; i < raw.length; i++) {
+      const v = raw[i];
+      out[i] = Number.isNaN(v) ? null : y0 + (Math.min(Math.max(v, r0), r1) - r0) * k;
+    }
+    return out;
+  }
+  for (let i = 0; i < raw.length; i++) {
+    const v = raw[i];
+    out[i] = Number.isNaN(v) ? null : v === 0 ? meta.yWhenZero : meta.yOtherwise;
+  }
+  return out;
+}
+
+// ค่าล่าสุดของรายการจุดเปลี่ยนในช่วง index [0, end) (null ถ้าไม่มี)
+function latestChange(changes, end) {
+  let last = null;
+  for (const change of changes) {
+    if (change.index >= end) break;
+    last = change;
+  }
+  return last;
 }
 
 // เวอร์ชันซอฟต์แวร์ล่าสุดในช่วง index [0, end) (null ถ้าไม่มี)
-function softwareBefore(end) {
-  let label = null;
-  for (const change of loaded.result.softwareChanges) {
-    if (change.index >= end) break;
-    label = change.label;
-  }
-  return label;
+const softwareBefore = (end) => latestChange(loaded.result.softwareChanges, end)?.label ?? null;
+
+// Refrigerator Work Mode ล่าสุดในช่วง index [0, end) (null ถ้าไม่มี)
+function workModeBefore(end) {
+  const change = latestChange(loaded.result.workModeChanges, end);
+  return change ? formatWorkMode(change.value) : null;
 }
 
 function skippedMessages(result) {
@@ -215,6 +365,12 @@ function skippedMessages(result) {
 }
 
 // ---------- แสดงผล ----------
+// สีจริงของรายการ: "axis" = สีตัวเลขแกนกราฟของโหมดที่ใช้อยู่
+function resolveColor(color) {
+  if (color !== "axis") return color;
+  return getComputedStyle(document.documentElement).getPropertyValue("--muted").trim();
+}
+
 function clearResult() {
   if (chart) chart.destroy();
   chart = null;
@@ -222,24 +378,44 @@ function clearResult() {
   el.result.hidden = true;
 }
 
-function renderResult() {
-  el.result.hidden = false;
-  renderFileInfo();
-  renderStatsTable();
-  buildChart();
-}
-
 function buildChart() {
   if (chart) chart.destroy();
-  const { result, sensors } = loaded;
-  chart = createChart(
-    el.chart,
-    result.times,
-    sensors.map((s) => ({ label: s.meta.en, color: s.meta.color, values: s.values, show: s.show, stepped: s.isStatus })),
-    { onRange: updateRange, onCursor: updateCursor, onSelect: updateStats },
-    result.softwareChanges.slice(1).map((c) => c.time), // จุดแรกไม่ใช่การเปลี่ยน
-  );
+  const { result, items } = loaded;
+  const seriesList = [];
+  const markerLayers = [];
+  // เส้น behind (ค่าตัด/ต่อ) ต้องวาดก่อน = อยู่หลังเส้นอื่นทั้งหมด
+  const drawOrder = [...items.filter((i) => i.meta.behind), ...items.filter((i) => !i.meta.behind)];
+  for (const item of drawOrder) {
+    if (item.kind === "value") continue; // แสดงแค่ในตาราง ไม่มีในกราฟ
+    if (item.kind === "marker") {
+      item.markerIndex = markerLayers.length;
+      // dial ไม่มี Ice maker: ค่า 0 = ไม่มี ไม่ใช่เปิด → ไม่วาดอะไร
+      const noDevice = item.absent && item.meta.drawWhen === "zero";
+      markerLayers.push({
+        shape: item.meta.shape, color: resolveColor(item.meta.color), y: item.meta.y, show: item.show,
+        drawWhen: item.meta.drawWhen, raw: noDevice ? null : item.raw,
+        // จุดที่ software / work mode เปลี่ยน (จุดแรกของไฟล์ไม่ใช่การเปลี่ยน)
+        times: item.meta.changes ? result[item.meta.changes].slice(1).map((c) => c.time)
+          : noDevice ? [] : null,
+      });
+    } else {
+      item.seriesIndex = seriesList.length;
+      seriesList.push({
+        label: item.meta.en, color: resolveColor(item.meta.color), values: item.values, show: item.show,
+        stepped: item.kind === "line", dash: !!item.meta.dash,
+        width: item.meta.behind ? 1 : undefined, // เส้นบางๆ
+      });
+    }
+  }
+  chart = createChart(el.chart, result.times, seriesList,
+    { onRange: updateRange, onCursor: updateCursor, onSelect: updateStats, formatDuration: fmtDuration }, markerLayers);
   updateRange(...chart.getRange());
+}
+
+function setItemVisible(item, show) {
+  item.show = show;
+  if (item.kind === "marker") chart.setMarkerVisible(item.markerIndex, show);
+  else chart.setVisible(item.seriesIndex, show);
 }
 
 function renderFileInfo() {
@@ -250,6 +426,7 @@ function renderFileInfo() {
     ["ini", result.ini ?? "–"],
     ["period", `${formatDateTime(times[0])} → ${formatDateTime(times[times.length - 1])}`],
     ["software", "–"],
+    ["workMode", "–"],
     ["sampling", Number.isNaN(result.sampling) ? "–" : `${fmtInt(result.sampling)} s`],
   ];
   el.fileInfo.replaceChildren(...rows.map(([key, value]) => {
@@ -260,51 +437,148 @@ function renderFileInfo() {
     dd.textContent = value;
     dd.className = `info-${key}`;
     if (key === "software") dd.id = "info-software";
+    if (key === "workMode") dd.id = "info-workmode";
     item.append(dt, dd);
     return item;
   }));
 }
 
+// ---------- ตาราง ----------
+const groupOf = (item) => item.meta.group ?? "sensor";
+
 function renderStatsTable() {
-  statRows = loaded.sensors.map(createStatRow);
-  const rows = TABLE_GROUPS.flatMap((group) => {
-    const members = statRows.filter((_, i) => (loaded.sensors[i].meta.group ?? "sensor") === group.key);
-    return members.length ? [createGroupRow(group), ...members] : [];
+  statRows = loaded.items.map(createStatRow);
+  const lang = getLang();
+  SLOTS.forEach((slot) => $(`slot-${slot}`).replaceChildren());
+  TABLE_GROUPS.forEach((group, index) => {
+    const members = statRows
+      .map((tr, i) => ({ tr, item: loaded.items[i] }))
+      .filter(({ item }) => groupOf(item) === group.key)
+      .sort((a, b) => a.item.meta[lang].localeCompare(b.item.meta[lang], lang, { sensitivity: "base" }))
+      .map(({ tr }) => tr);
+    if (!members.length) return;
+    const card = createGroupCard(group, members);
+    card.style.order = index + 1; // ลำดับบนจอแคบ/แนวตั้ง (กราฟ = 0)
+    $(`slot-${group.slot}`).append(card);
   });
-  el.statsBody.replaceChildren(...rows);
 }
 
-function createGroupRow(group) {
-  const tr = document.createElement("tr");
-  tr.className = "group";
-  const th = document.createElement("th");
-  th.colSpan = 5;
-  th.textContent = t(group);
-  tr.append(th);
-  return tr;
+// กล่อง 1 หัวข้อ: ตารางของตัวเอง + ปุ่มซ่อน/แสดงรายการข้างใน
+function createGroupCard(group, members) {
+  const card = document.createElement("section");
+  card.className = "panel group-card";
+  card.dataset.group = group.key;
+
+  const table = document.createElement("table");
+  table.className = "stats";
+  const thead = document.createElement("thead");
+
+  const titleRow = document.createElement("tr");
+  titleRow.className = "group";
+  const titleCell = document.createElement("th");
+  titleCell.colSpan = 5;
+  const title = document.createElement("span");
+  title.textContent = t(group);
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "group-toggle";
+  titleCell.append(title, toggle);
+  titleRow.append(titleCell);
+
+  const columnRow = document.createElement("tr");
+  columnRow.className = "columns";
+  [["colName", ""], ["colCursor", "num"], ["colMin", "num"], ["colMax", "num"], ["colAvg", "num"]].forEach(([key, cls]) => {
+    const th = document.createElement("th");
+    th.className = cls;
+    th.textContent = t(MSG[key]);
+    columnRow.append(th);
+  });
+  thead.append(titleRow, columnRow);
+
+  const tbody = document.createElement("tbody");
+  tbody.append(...members);
+  table.append(thead, tbody);
+
+  const wrap = document.createElement("div");
+  wrap.className = "table-wrap";
+  wrap.append(table);
+  card.append(wrap);
+
+  const refresh = () => {
+    const collapsed = collapsedGroups.has(group.key);
+    toggle.textContent = t(collapsed ? MSG.showGroup : MSG.hideGroup);
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    columnRow.hidden = collapsed;
+    tbody.hidden = collapsed;
+  };
+  toggle.addEventListener("click", () => {
+    if (collapsedGroups.has(group.key)) collapsedGroups.delete(group.key);
+    else collapsedGroups.add(group.key);
+    refresh();
+  });
+  refresh();
+  return card;
 }
 
-function createStatRow(s, i) {
+// ภาพตัวอย่างลักษณะบนกราฟ (เส้น / ขั้นบันได / จุด / กากบาท / วงกลม / ขีด)
+function createSwatch(item) {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("class", "swatch");
+  svg.setAttribute("viewBox", "0 0 16 10");
+  svg.setAttribute("aria-hidden", "true");
+  const color = resolveColor(item.meta.color);
+  const add = (tag, attrs) => {
+    const node = document.createElementNS(NS, tag);
+    Object.entries({ stroke: color, fill: "none", "stroke-width": 1.8, ...attrs })
+      .forEach(([k, v]) => node.setAttribute(k, v));
+    svg.append(node);
+  };
+  const shape = item.kind === "sensor" ? "line" : item.meta.temp ? "thinDash" : item.kind === "line" ? "step" : item.meta.shape;
+  if (shape === "line") add("line", { x1: 1, y1: 5, x2: 15, y2: 5, "stroke-width": 3 });
+  else if (shape === "thinDash") add("line", { x1: 1, y1: 5, x2: 15, y2: 5, "stroke-width": 1.5, "stroke-dasharray": "3 2" });
+  else if (shape === "step") {
+    add("polyline", {
+      points: "1,8 6,8 6,2 11,2 11,8 15,8", "stroke-width": 2,
+      ...(item.meta.dash ? { "stroke-dasharray": "2.5 1.5" } : {}), // เส้นประ (Valve)
+    });
+  }
+  else if (shape === "dot") add("circle", { cx: 8, cy: 5, r: 3, fill: color, stroke: "none" });
+  else if (shape === "circle") add("circle", { cx: 8, cy: 5, r: 3 });
+  else if (shape === "cross") add("path", { d: "M5,2 L11,8 M5,8 L11,2" });
+  else if (shape === "dash") add("line", { x1: 3.5, y1: 5, x2: 12.5, y2: 5, "stroke-width": 2 });
+  return svg;
+}
+
+function createStatRow(item) {
   const tr = document.createElement("tr");
-  tr.dataset.index = i;
 
   const nameCell = document.createElement("td");
   const label = document.createElement("label");
   label.className = "series-toggle";
-  const box = document.createElement("input");
-  box.type = "checkbox";
-  box.checked = s.show;
-  box.addEventListener("change", () => {
-    s.show = box.checked;
-    chart.setVisible(i, s.show);
-    tr.classList.toggle("off", !s.show);
-  });
-  const swatch = document.createElement("span");
-  swatch.className = "swatch";
-  swatch.style.background = s.meta.color;
   const text = document.createElement("span");
-  text.textContent = s.meta[getLang()] + (s.allZero ? ` ${t(MSG.noSensorData)}` : "");
-  label.append(box, swatch, text);
+  text.textContent = item.meta[getLang()];
+  if (item.allZero) {
+    const note = document.createElement("span");
+    note.className = "item-note muted";
+    note.textContent = ` ${t(MSG.noSensorData)}`;
+    text.append(note);
+  }
+  if (item.kind === "value") {
+    // ไม่มีในกราฟ → ไม่มี checkbox / ภาพลักษณะ (เว้นที่ไว้ให้ชื่อตรงกับแถวอื่น)
+    const spacer = document.createElement("span");
+    spacer.className = "toggle-spacer";
+    label.append(spacer, text);
+  } else {
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = item.show;
+    box.addEventListener("change", () => {
+      setItemVisible(item, box.checked);
+      tr.classList.toggle("off", !item.show);
+    });
+    label.append(box, createSwatch(item), text);
+  }
   nameCell.append(label);
 
   const cells = ["cursor", "min", "max", "avg"].map((name) => {
@@ -313,7 +587,7 @@ function createStatRow(s, i) {
     td.textContent = "–";
     return td;
   });
-  tr.classList.toggle("off", !s.show);
+  tr.classList.toggle("off", !item.show);
   tr.append(nameCell, ...cells);
   return tr;
 }
@@ -326,6 +600,28 @@ function updateRange(min, max) {
   updateStats();
 }
 
+// Min / Max / Avg ของ 1 รายการ เป็นข้อความ [min, max, avg]
+function statsText(item, start, end) {
+  if (!item.raw) return ["–", "–", "–"]; // Software change ไม่มีค่าตัวเลข
+  if (item.meta.heater) {
+    // ไม่มี heater นี้ / duty คำนวณไม่ได้ (sampling > 1 วินาที) → "–"
+    if (item.absent || !item.duty) return ["–", "–", "–"];
+    const d = computeStats(item.duty, start, end);
+    return [fmtPct(d.min), fmtPct(d.max), fmtPct(d.avg)];
+  }
+  const s = computeStats(item.raw, start, end);
+  if (item.kind === "sensor" || item.meta.temp) return [fmtTemp(s.min), fmtTemp(s.max), fmtTemp(s.avg)];
+  const avgText = (text) => (item.meta.noAvg ? "–" : text);
+  // ค่าจริง = ค่าดิบ × scale (Compressor ×30)
+  if (item.meta.scale) {
+    const k = item.meta.scale;
+    return [fmtRaw(s.min * k), fmtRaw(s.max * k), avgText(fmtRaw(s.avg * k))];
+  }
+  // สถานะ: ค่าดิบในไฟล์ (Power = ProTestTimer, อื่นๆ = 0/1)
+  const avgDigits = item.kind === "line" ? 1 : 2;
+  return [fmtRaw(s.min), fmtRaw(s.max), avgText(fmtRaw(s.avg, avgDigits))];
+}
+
 // Min / Max / Avg: ใช้ช่วงที่ลากเลือก ถ้าไม่มี ใช้ช่วงที่แสดงบนกราฟ
 function updateStats() {
   if (!loaded || !chart) return;
@@ -334,19 +630,65 @@ function updateStats() {
   const [start, end] = indexRange(loaded.result.times, min, max);
   // ซอฟต์แวร์: ตัวล่าสุดในช่วงที่เลือก / ช่วงที่แสดง
   document.getElementById("info-software").textContent = softwareBefore(end) ?? "–";
-  loaded.sensors.forEach((s, i) => {
-    const stats = computeStats(s.raw, start, end);
+  document.getElementById("info-workmode").textContent = workModeBefore(end) ?? "–";
+  loaded.items.forEach((item, i) => {
+    const [minText, maxText, avgText] = statsText(item, start, end);
     const tr = statRows[i];
-    // Power: ค่าดิบ ProTestTimer (จำนวนเต็ม), เซนเซอร์: °C ทศนิยม 1 ตำแหน่ง
-    tr.querySelector(".min").textContent = s.isStatus ? fmtRaw(stats.min) : fmtTemp(stats.min);
-    tr.querySelector(".max").textContent = s.isStatus ? fmtRaw(stats.max) : fmtTemp(stats.max);
-    tr.querySelector(".avg").textContent = s.isStatus ? fmtRaw(stats.avg, 1) : fmtTemp(stats.avg);
+    tr.querySelector(".min").textContent = minText;
+    tr.querySelector(".max").textContent = maxText;
+    tr.querySelector(".avg").textContent = avgText;
   });
   el.statsScopeText.textContent = t(selection ? MSG.scopeSelection : MSG.scopeView, {
-    from: formatDateTime(Math.floor(min)), to: formatDateTime(Math.ceil(max)),
+    from: formatDateTime(Math.floor(min)), to: formatDateTime(Math.ceil(max)), dur: fmtDuration(max - min),
   });
   el.statsScope.classList.toggle("selected", !!selection);
   el.clearSelection.hidden = !selection;
+}
+
+// ข้อความช่อง "ค่า ณ เคอร์เซอร์" ตาม meta.display
+function cursorText(item, idx) {
+  const display = item.meta.display;
+  if (item.kind === "sensor") return fmtTemp(item.values[idx]);
+  if (display === "software") return "–"; // เวอร์ชันแสดงอยู่บรรทัดเวลาเคอร์เซอร์แล้ว
+  if (item.absent) return t(MSG.notPresent); // ไม่มีชิ้นส่วนนี้ในตู้
+  const v = item.raw[idx];
+  if (Number.isNaN(v)) return "–";
+  if (display === "onOff") return v === 0 ? "OFF" : "ON";
+  if (display === "scaled") return fmtRaw(v * item.meta.scale);
+  if (display === "error") return v !== 0 ? "ERROR" : "–";
+  if (display === "valve") return VALVE_POSITIONS[v] ?? fmtRaw(v);
+  if (display === "damper") return damperText(item.raw, idx);
+  if (display === "heater") {
+    const e = item.effective[idx];
+    if (Number.isNaN(e)) return "–";
+    if (e === 0) return "OFF";
+    return item.duty ? `ON(${fmtPct(item.duty[idx])})` : "ON";
+  }
+  if (display === "raw") return fmtRaw(v);
+  if (display === "temp") return fmtTemp(v);
+  if (display === "dial") {
+    return v === 1 ? "OFF" : "ON"; // IceMachine.iceOFF: 1 = ปิด, 0 = เปิด
+  }
+  return fmtRaw(v);
+}
+
+// Damper: 0 = Close, 1850 = Open, ระหว่างนั้นดูทิศทางจากค่าก่อนหน้า (หรือถัดไป) ที่ต่างกัน
+const DAMPER_LOOK = 600; // มองหาค่าที่ต่างกันไม่เกินกี่แถว
+function damperText(raw, idx) {
+  const v = raw[idx];
+  if (v <= 0) return "Close";
+  if (v >= DAMPER_OPEN) return "Open";
+  for (let i = idx - 1; i >= Math.max(0, idx - DAMPER_LOOK); i--) {
+    const p = raw[i];
+    if (Number.isNaN(p) || p === v) continue;
+    return p < v ? "Opening" : "Closing";
+  }
+  for (let i = idx + 1; i < Math.min(raw.length, idx + DAMPER_LOOK); i++) {
+    const n = raw[i];
+    if (Number.isNaN(n) || n === v) continue;
+    return n > v ? "Opening" : "Closing";
+  }
+  return fmtRaw(v);
 }
 
 function updateCursor(idx) {
@@ -354,9 +696,9 @@ function updateCursor(idx) {
   const valid = idx != null && idx >= 0 && idx < loaded.result.times.length;
   el.cursorTime.textContent = valid ? formatDateTime(loaded.result.times[idx]) : "–";
   el.cursorSoftware.textContent = valid ? (softwareBefore(idx + 1) ?? "–") : "–";
-  loaded.sensors.forEach((s, i) => {
-    const text = !valid ? "–" : s.isStatus ? fmtOnOff(s.raw[idx]) : fmtTemp(s.values[idx]);
-    statRows[i].querySelector(".cursor").textContent = text;
+  el.cursorWorkMode.textContent = valid ? (workModeBefore(idx + 1) ?? "–") : "–";
+  loaded.items.forEach((item, i) => {
+    statRows[i].querySelector(".cursor").textContent = valid ? cursorText(item, idx) : "–";
   });
 }
 
@@ -416,19 +758,23 @@ function bindEvents() {
     renderFileInfo();
     renderStatsTable();
     updateStats();
+    chart.refreshLabels();
   });
 
-  // เปลี่ยนธีมสว่าง/มืด → สร้างกราฟใหม่ให้สีแกนถูกต้อง
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-    if (!loaded) return;
+  // สลับโหมดสว่าง/มืด → สร้างกราฟและตารางใหม่ให้สีแกน / สี "axis" ถูกต้อง (คงช่วงที่ zoom ไว้)
+  onThemeChange(() => {
+    if (!loaded || !chart) return;
     const range = chart.getRange();
+    renderStatsTable();
     buildChart();
     chart.setRange(...range);
   });
 }
 
 initLanguage();
+initTheme();
 bindEvents();
+
 // ---------- หัวเว็บ / ท้ายเว็บ ----------
 document.getElementById("app-version").textContent = APP_VERSION;
 
@@ -436,7 +782,6 @@ document.getElementById("app-version").textContent = APP_VERSION;
 function updateClock() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
-  document.getElementById("year").textContent = d.getFullYear();
   document.getElementById("now").textContent =
     `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
     `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;

@@ -12,13 +12,26 @@
   <meta name="description" content="แสดงกราฟอุณหภูมิจากไฟล์ log ของตู้เย็น / Temperature graphs from refrigerator log files">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css">
   <link rel="stylesheet" href="style.css">
+  <script>
+    // ตั้งโหมดสว่าง/มืดก่อนวาดหน้า (กันกระพริบ) — ค่าที่เคยเลือก หรือตามเครื่องผู้ใช้ (ดู js/theme.js)
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem("theme"); } catch (e) {}
+      if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.dataset.theme = t;
+    })();
+  </script>
 </head>
 <body>
 
   <header class="topbar">
     <div class="container topbar-inner">
       <a href="./" class="logo">AHTH Graph Generator <span class="version">Release version <span id="app-version"></span></span></a>
-      <button id="lang-btn" class="lang-btn" type="button" aria-label="Switch language">EN</button>
+      <div class="topbar-buttons">
+        <button id="theme-btn" class="lang-btn" type="button" aria-label="Toggle light / dark mode"
+                data-th-title="สลับโหมดสว่าง / มืด" data-en-title="Toggle light / dark mode">🌙</button>
+        <button id="lang-btn" class="lang-btn" type="button" aria-label="Switch language">EN</button>
+      </div>
     </div>
   </header>
 
@@ -55,63 +68,58 @@
         <dl id="file-info" class="file-info"></dl>
       </div>
 
-      <div class="panel">
-        <div class="range-controls">
-          <label>
-            <span data-th="เริ่ม" data-en="From">เริ่ม</span>
-            <input id="range-start" type="datetime-local" step="1">
-          </label>
-          <label>
-            <span data-th="สิ้นสุด" data-en="To">สิ้นสุด</span>
-            <input id="range-end" type="datetime-local" step="1">
-          </label>
-          <div class="range-buttons">
-            <button id="range-apply" class="btn" type="button" data-th="แสดงช่วงนี้" data-en="Apply">แสดงช่วงนี้</button>
-            <button id="zoom-reset" class="btn secondary" type="button" data-th="ดูทั้งหมด" data-en="Reset zoom">ดูทั้งหมด</button>
+      <!-- จอแนวนอนกว้าง: ตารางแยกหัวข้อวางรอบกราฟ (ซ้าย / ขวา / ใต้กราฟ) — จอแคบ: เรียงลงมาทีละกล่อง
+           (หัวข้อไหนอยู่ช่องไหน กำหนดด้วย slot ใน TABLE_GROUPS ของ js/main.js) -->
+      <div class="dashboard">
+        <div class="panel chart-panel">
+          <div class="range-controls">
+            <label>
+              <span data-th="เริ่ม" data-en="From">เริ่ม</span>
+              <input id="range-start" type="datetime-local" step="1">
+            </label>
+            <label>
+              <span data-th="สิ้นสุด" data-en="To">สิ้นสุด</span>
+              <input id="range-end" type="datetime-local" step="1">
+            </label>
+            <div class="range-buttons">
+              <button id="range-apply" class="btn" type="button" data-th="แสดงช่วงนี้" data-en="Apply">แสดงช่วงนี้</button>
+              <button id="zoom-reset" class="btn secondary" type="button" data-th="ดูทั้งหมด" data-en="Reset zoom">ดูทั้งหมด</button>
+            </div>
           </div>
-        </div>
-        <ul class="hint muted">
-          <li data-th="ลูกกลิ้งเมาส์ = ซูมเข้า/ออก" data-en="Mouse wheel = zoom in/out">ลูกกลิ้งเมาส์ = ซูมเข้า/ออก</li>
-          <li data-th="ลากคลิกขวา = ซูมเข้าช่วงที่ลาก" data-en="Right-drag = zoom to range">ลากคลิกขวา = ซูมเข้าช่วงที่ลาก</li>
-          <li data-th="ลากคลิกซ้าย = เลือกช่วงเพื่อดูค่า · คลิกซ้ายเพื่อยกเลิก" data-en="Left-drag = select a range to inspect · left-click to clear">ลากคลิกซ้าย = เลือกช่วงเพื่อดูค่า · คลิกซ้ายเพื่อยกเลิก</li>
-          <li data-th="ดับเบิลคลิก = ดูทั้งหมด" data-en="Double-click = reset zoom">ดับเบิลคลิก = ดูทั้งหมด</li>
-        </ul>
+          <ul class="hint muted">
+            <li data-th="ลูกกลิ้งเมาส์ = ซูมเข้า/ออก" data-en="Mouse wheel = zoom in/out">ลูกกลิ้งเมาส์ = ซูมเข้า/ออก</li>
+            <li data-th="ลากคลิกขวา = เลื่อนกราฟซ้าย/ขวา" data-en="Right-drag = pan left/right">ลากคลิกขวา = เลื่อนกราฟซ้าย/ขวา</li>
+            <li data-th="ลากคลิกซ้าย = เลือกช่วงเพื่อดูค่า · คลิกซ้ายเพื่อยกเลิก" data-en="Left-drag = select a range to inspect · left-click to clear">ลากคลิกซ้าย = เลือกช่วงเพื่อดูค่า · คลิกซ้ายเพื่อยกเลิก</li>
+            <li data-th="ดับเบิลคลิก = ดูทั้งหมด" data-en="Double-click = reset zoom">ดับเบิลคลิก = ดูทั้งหมด</li>
+          </ul>
 
-        <div id="chart" class="chart"></div>
-      </div>
+          <div id="chart" class="chart"></div>
 
-      <div class="panel">
-        <p class="cursor-time"><span data-th="เวลาที่เคอร์เซอร์:" data-en="Cursor time:">เวลาที่เคอร์เซอร์:</span>
-          <strong id="cursor-time">–</strong>
-          <span class="cursor-sep">·</span>
-          <span data-th="ซอฟต์แวร์:" data-en="Software:">ซอฟต์แวร์:</span>
-          <strong id="cursor-software">–</strong></p>
-        <div class="table-wrap">
-          <table class="stats">
-            <thead>
-              <tr>
-                <th data-th="ชื่อ" data-en="Name">ชื่อ</th>
-                <th class="num" data-th="ค่า ณ เคอร์เซอร์" data-en="At cursor">ค่า ณ เคอร์เซอร์</th>
-                <th class="num">Min</th>
-                <th class="num">Max</th>
-                <th class="num" data-th="เฉลี่ย" data-en="Average">เฉลี่ย</th>
-              </tr>
-            </thead>
-            <tbody id="stats-body"></tbody>
-          </table>
+          <p class="cursor-time"><span data-th="เวลาที่เคอร์เซอร์:" data-en="Cursor time:">เวลาที่เคอร์เซอร์:</span>
+            <strong id="cursor-time">–</strong>
+            <span class="cursor-sep">·</span>
+            <span data-th="ซอฟต์แวร์:" data-en="Software:">ซอฟต์แวร์:</span>
+            <strong id="cursor-software">–</strong>
+            <span class="cursor-sep">·</span>
+            <span data-th="Work mode:" data-en="Work mode:">Work mode:</span>
+            <strong id="cursor-workmode">–</strong></p>
+          <p id="stats-scope" class="stats-scope">
+            <span id="stats-scope-text"></span>
+            <button id="clear-selection" class="link-btn" type="button" hidden
+                    data-th="ยกเลิกการเลือก" data-en="Clear selection">ยกเลิกการเลือก</button>
+          </p>
         </div>
-        <p id="stats-scope" class="stats-scope">
-          <span id="stats-scope-text"></span>
-          <button id="clear-selection" class="link-btn" type="button" hidden
-                  data-th="ยกเลิกการเลือก" data-en="Clear selection">ยกเลิกการเลือก</button>
-        </p>
+
+        <div id="slot-left" class="slot slot-left"></div>
+        <div id="slot-right" class="slot slot-right"></div>
+        <div id="slot-below" class="slot slot-below"></div>
       </div>
     </section>
   </main>
 
   <footer class="footer">
     <div class="container">
-      <p>© <span id="year"></span> <span id="now"></span></p>
+      <p>© <span id="now"></span></p>
     </div>
   </footer>
 
