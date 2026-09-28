@@ -9,6 +9,13 @@
 - ลูกกลิ้ง = zoom, ลากขวา = เลื่อนกราฟซ้าย/ขวา, ลากซ้าย = เลือกช่วงดูค่า
 - Min / Max / Average ของช่วงที่เลือก / ช่วงที่แสดง
 
+## เอกสาร
+
+- [docs/WORKFLOW.md](docs/WORKFLOW.md) — โปรแกรมทำงานอย่างไร (ไฟล์ → Worker → กราฟ/ตาราง)
+- [docs/GUIDE.md](docs/GUIDE.md) — คู่มือนักพัฒนาทีละขั้น: รันในเครื่อง, เพิ่มรายการใหม่, ทดสอบ, release
+- [docs/AHTH-Graph-Generator-Training.pptx](docs/AHTH-Graph-Generator-Training.pptx) — สไลด์สอน 15 หน้า (สร้างด้วย `python tools/make-training-deck.py`)
+- [CLAUDE.md](CLAUDE.md) — สเปกและกฎทั้งหมด
+
 ## รันในเครื่อง
 
 ```bash

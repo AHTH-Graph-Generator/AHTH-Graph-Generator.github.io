@@ -265,6 +265,9 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
   js/logformat.js     ชื่อคอลัมน์, scale, parse วันที่ (ใช้ร่วมกันทั้ง worker และหน้าเว็บ)
   js/chart.js         สร้าง/อัปเดตกราฟ
   js/stats.js         คำนวณ min/max/avg
+  docs/WORKFLOW.md    เอกสาร: โปรแกรมทำงานอย่างไร (อัปเดตเมื่อเปลี่ยนโครงสร้าง/การไหลของข้อมูล)
+  docs/GUIDE.md       เอกสาร: คู่มือนักพัฒนาทีละขั้น (อัปเดตเมื่อเปลี่ยนวิธีเพิ่มรายการ/ทดสอบ/release)
+  docs/AHTH-Graph-Generator-Training.pptx  สไลด์สอน — สร้างจาก tools/make-training-deck.py (แก้ที่ script ไม่แก้ .pptx ตรงๆ)
   samples/sample.*    ไฟล์ตัวอย่างข้อมูลปลอม .log/.csv/.xlsx (สร้างด้วย tools/make-sample.py)
   ```
 - แยก logic (parser, stats) ออกจาก UI เพื่อทดสอบง่าย
