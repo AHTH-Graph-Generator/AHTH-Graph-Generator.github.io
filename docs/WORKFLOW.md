@@ -40,7 +40,9 @@ flowchart LR
 | `js/parser.worker.js` | Web Worker | อ่านไฟล์ทีละแถว, หาคอลัมน์จาก header, ตรวจแถวเสีย, เก็บค่าลง typed array |
 | `js/sources.js` | Web Worker | แปลง .log/.txt/.csv/.xlsx เป็น "แถว" (array ของข้อความ) — xlsx อ่านเองไม่ใช้ library |
 | `js/logformat.js` | ทั้งสองฝั่ง | **ค่าคงที่ทั้งหมด**: ชื่อคอลัมน์, `SENSORS`, `STATUS_ITEMS`, สี, ตำแหน่ง Y, parse วันที่ |
-| `js/chart.js` | หน้าเว็บ | สร้างกราฟ uPlot, การใช้เมาส์ (zoom/pan/เลือกช่วง), วาดสัญลักษณ์ (marker) |
+| `js/chart.js` | หน้าเว็บ | สร้างกราฟ uPlot, การใช้เมาส์ / นิ้ว / ปากกา (zoom/pan/เลือกช่วง), วาดสัญลักษณ์ (marker), บันทึกรูป PNG |
+| `js/rawdata.js` | หน้าเว็บ | หน้าต่าง Real data: สั่ง Worker อ่านไฟล์เดิมซ้ำเฉพาะช่วงที่เลือก → ตารางค่าดิบ (virtual scrolling) + Export CSV |
+| `js/annotate.js` | หน้าเว็บ | โหมดวาดโน้ต: เส้นผูกกับเวลา+ค่า Y, ความหนาตามแรงกดปากกา, ยางลบ |
 | `js/stats.js` | หน้าเว็บ | หาช่วง index จากเวลา, คำนวณ Min/Max/Avg |
 | `js/i18n.js` | หน้าเว็บ | สลับภาษา TH/EN (`data-th` / `data-en`, ฟังก์ชัน `t()`) |
 | `js/theme.js` | หน้าเว็บ | ปุ่มสลับโหมดสว่าง/มืด, จำค่าใน localStorage |
@@ -177,6 +179,10 @@ sequenceDiagram
 | ลากคลิกซ้าย | uPlot drag (`setScale: false`) + hook `setSelect` | เลือกช่วง + ป้าย `\|◀ 30 min ▶\|` |
 | คลิกซ้ายเฉยๆ | `interactionPlugin` | ยกเลิกช่วงที่เลือก |
 | ดับเบิลคลิก | uPlot | ดูทั้งหมด |
+| จอสัมผัส: แตะ / ลากนิ้ว / จีบ 2 นิ้ว / ลาก 2 นิ้ว / แตะ 2 ครั้ง | `touchSupport()` | เคอร์เซอร์ / เลือกช่วง / zoom / pan / ดูทั้งหมด |
+| ปากกา: ลากทิศไหนก็ได้ / ลอยเหนือจอ | `touchSupport()` | เลือกช่วง / เคอร์เซอร์ตามปลายปากกา |
+| ปุ่ม 📋 Real data | `openRawData()` ใน `rawdata.js` → Worker `type: "extract"` | ตารางค่าดิบจากไฟล์ของช่วงที่เลือก |
+| โหมดวาดโน้ต (ปุ่ม ✏️) | `createAnnotator()` ใน `annotate.js` | วาด/ลบโน้ต — เก็บใน `loaded.notes` |
 
 - `updateStats()` ใช้ `indexRange()` (binary search) หา index แล้ว `computeStats()` (ข้าม `NaN`)
 - ข้อความในตารางจัดรูปตาม `meta.display` ใน `cursorText()` / `statsText()` เช่น ON/OFF, ERROR, Close/Opening/Open, `ON(30%)`

@@ -16,6 +16,16 @@ export const METADATA_KEY = "MachineINIFile";
 
 // ชื่อคอลัมน์เวลา เทียบแบบตัดช่องว่างทิ้งทั้งหมด ("Date    /    Time " → "Date/Time")
 export const TIME_COLUMN = "Date/Time";
+// ชื่ออื่นของคอลัมน์เวลาที่เจอในไฟล์จริง (ไม่สนตัวพิมพ์เล็ก/ใหญ่)
+//   "Date    /    Time "  — log จาก logger ปกติ
+//   "Timestamp"           — ไฟล์ .xlsx ที่ export จากโปรแกรม ConvertCSV (ไม่มีบรรทัด MachineINIFile)
+export const TIME_COLUMN_NAMES = [TIME_COLUMN, "Timestamp", "DateTime", "Date/Time Stamp"];
+
+// หาคอลัมน์เวลาจาก header (คืน -1 ถ้าไม่พบ)
+export function findTimeColumn(names) {
+  const targets = TIME_COLUMN_NAMES.map((n) => normalizeName(n).toLowerCase());
+  return names.findIndex((h) => targets.includes(normalizeName(h ?? "").toLowerCase()));
+}
 
 // เซนเซอร์อุณหภูมิที่แสดงบนกราฟ (หาคอลัมน์ด้วยชื่อ ไม่ใช้ index)
 // ชื่อที่แสดง (th/en) กำหนดโดยผู้ใช้ — ดูตารางใน CLAUDE.md
@@ -213,12 +223,15 @@ export const SOFTWARE_COLUMNS = {
   version: "Stock.Version",
   revision: "Stock.Revision",
 };
+export const SOFTWARE_VR_DIGITS = 2;      // Version / Revision เติม 0 ข้างหน้าให้ครบ 2 หลัก
 export const SOFTWARE_NO_DIGITS = 4;      // เติม 0 ข้างหน้า Stock.No แต่ละตัวให้ครบ 4 หลัก
 
 export function formatSoftware(noParts, version, revision) {
   const no = noParts.map((n) => String(n).padStart(SOFTWARE_NO_DIGITS, "0")).join("")
     .replace(/^0+(?=\d)/, ""); // ตัด 0 ข้างหน้าของเลขรวม (เหลืออย่างน้อย 1 หลัก)
-  return `${no}-V${version}R${revision}`;
+  // Version / Revision อย่างน้อย 2 หลักเสมอ: V0R5 → V00R05, V98R14 คงเดิม
+  const two = (n) => String(n).padStart(SOFTWARE_VR_DIGITS, "0");
+  return `${no}-V${two(version)}R${two(revision)}`;
 }
 
 // ตัดช่องว่างทั้งหมดออกจากชื่อคอลัมน์ เพื่อเทียบชื่อได้แน่นอน

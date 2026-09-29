@@ -2,14 +2,15 @@
 // main.js — จุดเริ่มต้นของหน้าเว็บ ผูก UI กับ parser / chart / stats
 // ============================================================
 
-import { SENSORS, STATUS_ITEMS, VALVE_POSITIONS, DAMPER_OPEN, HEATER_STATE, formatWorkMode, formatDateTime, toInputValue, fromInputValue } from "./logformat.js";
+import { SENSORS, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN, VALVE_POSITIONS, DAMPER_OPEN, HEATER_STATE, formatWorkMode, formatDateTime, toInputValue, fromInputValue } from "./logformat.js";
 import { indexRange, computeStats } from "./stats.js";
 import { createChart, toPlotValues } from "./chart.js";
 import { t, getLang, initLanguage, onLanguageChange } from "./i18n.js";
 import { initTheme, onThemeChange } from "./theme.js";
+import { openRawData, initRawData } from "./rawdata.js";
 
 // เวอร์ชันที่แสดงบนหัวเว็บ — เปลี่ยนตรงนี้ที่เดียวทุกครั้งที่ release
-const APP_VERSION = "1.5";
+const APP_VERSION = "1.7";
 
 const SAMPLE_URL = "samples/sample.log";
 
@@ -22,9 +23,9 @@ const MSG = {
   xlsxInvalid:    { th: "อ่านไฟล์ .xlsx ไม่ได้ ไฟล์อาจเสียหรือไม่ใช่ Excel", en: "Could not read the .xlsx file — it may be damaged or not an Excel file." },
   noDecompression:{ th: "Browser นี้อ่าน .xlsx ไม่ได้ กรุณาใช้ Chrome, Edge, Firefox หรือ Safari รุ่นใหม่ หรือใช้ไฟล์ .csv", en: "This browser cannot read .xlsx. Please use a recent Chrome, Edge, Firefox or Safari, or use a .csv file." },
   emptyFile:      { th: "ไฟล์ว่าง ไม่มีข้อมูล", en: "The file is empty." },
-  noMetadata:     { th: "บรรทัดที่ {line}: ไม่พบบรรทัด metadata (MachineINIFile = …) — ไฟล์นี้อาจไม่ใช่ log ของตู้เย็น", en: "Line {line}: metadata line (MachineINIFile = …) not found — this may not be a refrigerator log." },
+  noMetadata:     { th: "บรรทัดที่ {line}: ไม่พบบรรทัด metadata (MachineINIFile = …) หรือหัวตารางที่มีคอลัมน์เวลา — ไฟล์นี้อาจไม่ใช่ log ของตู้เย็น", en: "Line {line}: neither a metadata line (MachineINIFile = …) nor a header with a time column was found — this may not be a refrigerator log." },
   noHeader:       { th: "บรรทัดที่ {line}: ไม่พบบรรทัดหัวตาราง (header)", en: "Line {line}: header line not found." },
-  noTimeColumn:   { th: "บรรทัดที่ {line}: header ไม่มีคอลัมน์ \"Date / Time\"", en: "Line {line}: header has no \"Date / Time\" column." },
+  noTimeColumn:   { th: "บรรทัดที่ {line}: header ไม่มีคอลัมน์เวลา (\"Date / Time\" หรือ \"Timestamp\")", en: "Line {line}: header has no time column (\"Date / Time\" or \"Timestamp\")." },
   noSensorColumns:{ th: "บรรทัดที่ {line}: header ไม่มีคอลัมน์อุณหภูมิที่รู้จักเลย (เช่น Cabin[0].airTemp.InC)", en: "Line {line}: header has none of the known temperature columns (e.g. Cabin[0].airTemp.InC)." },
   noData:         { th: "ไม่พบแถวข้อมูลที่อ่านได้ (ข้าม {skipped} แถว, แถวเสียแรกคือบรรทัดที่ {line})", en: "No readable data rows ({skipped} rows skipped, first bad row at line {line})." },
   noDataEmpty:    { th: "ไม่มีแถวข้อมูลหลังบรรทัดหัวตาราง", en: "There are no data rows after the header." },
@@ -41,6 +42,7 @@ const MSG = {
   reason_timeBackwards: { th: "เวลาย้อนกลับ \"{detail}\"", en: "time goes backwards \"{detail}\"" },
   lineN:          { th: "บรรทัด {line}", en: "line {line}" },
   noSensorData:   { th: "(0 ทั้งไฟล์)", en: "(all zero)" },
+  saveFailed:     { th: "บันทึกรูปไม่สำเร็จ", en: "Could not save the image." },
   notPresent:     { th: "ไม่มี", en: "N/A" },
   hideGroup:      { th: "ซ่อน", en: "Hide" },
   durDay:         { th: "{n} วัน", en: "{n} d" },
@@ -98,6 +100,7 @@ const el = {
 // ---------- สถานะของหน้า ----------
 let worker = null;
 let loadToken = 0; // เพิ่มทุกครั้งที่เปิดไฟล์ใหม่ (กันงานของไฟล์เก่าที่ยังทำไม่เสร็จ)
+let openedFile = null; // File ที่เปิดอยู่ — ใช้อ่านซ้ำตอนกด Real data (ไม่ต้องให้ผู้ใช้เลือกไฟล์ใหม่)
 // loaded.items = แถวในตาราง 1 แถวต่อ 1 รายการ:
 //   { meta, kind: "sensor" | "line" | "marker", raw, values?, show, allZero, seriesIndex?, markerIndex? }
 let loaded = null;
@@ -153,6 +156,7 @@ const hideProgress = () => { el.progress.hidden = true; };
 // ---------- โหลดไฟล์ ----------
 export function loadFile(file, fileName = file.name) {
   loadToken++;
+  openedFile = file;
   if (worker) worker.terminate();
   const notes = [];
   if (fileName && !/\.(log|txt|csv|xlsx|xls)$/i.test(fileName)) notes.push({ msg: MSG.wrongType, params: { name: fileName } });
@@ -215,7 +219,9 @@ function onParsed(fileName, result, notes) {
   (async () => {
     await nextTask();
     if (token !== loadToken) return;
-    loaded = { fileName, result, items: buildItems(result) };
+    loaded = { fileName, file: openedFile, result, items: buildItems(result), notes: { strokes: [] } };
+    drawState.mode = null; // ไฟล์ใหม่ = โน้ตใหม่ ปิดโหมดวาด
+    renderDrawToolbar();
     await nextTask();
     if (token !== loadToken) return;
     el.result.hidden = false;
@@ -408,8 +414,83 @@ function buildChart() {
     }
   }
   chart = createChart(el.chart, result.times, seriesList,
-    { onRange: updateRange, onCursor: updateCursor, onSelect: updateStats, formatDuration: fmtDuration }, markerLayers);
+    { onRange: updateRange, onCursor: updateCursor, onSelect: updateStats, formatDuration: fmtDuration },
+    markerLayers, loaded.notes);
+  // สร้างกราฟใหม่ (เปลี่ยนโหมดสว่าง/มืด) → คงโหมดวาดและสีเดิม
+  chart.setDrawColor(drawState.color);
+  chart.setDrawMode(drawState.mode);
   updateRange(...chart.getRange());
+}
+
+// ---------- Real data: ตารางค่าดิบจากไฟล์ในช่วงที่เลือก (หรือช่วงที่แสดงถ้าไม่ได้เลือก) ----------
+// ชื่อคอลัมน์ที่เว็บใช้ในกราฟ/ตาราง (สำหรับตัวเลือก "เฉพาะคอลัมน์ที่ใช้ในกราฟ")
+function usedColumnNames() {
+  const names = [
+    ...SENSORS.flatMap((s) => [s.column, s.err]),
+    ...STATUS_ITEMS.flatMap((s) => [s.column, s.stateColumn]),
+    ...SOFTWARE_COLUMNS.no, SOFTWARE_COLUMNS.version, SOFTWARE_COLUMNS.revision, WORK_MODE_COLUMN,
+  ].filter(Boolean);
+  return new Set(names.map((n) => n.replace(/\s+/g, "").toLowerCase()));
+}
+
+function showRawData() {
+  if (!loaded || !chart) return;
+  const selection = chart.getSelection();
+  const [minTime, maxTime] = selection ? [selection.min, selection.max] : chart.getRange();
+  openRawData({
+    file: loaded.file, fileName: loaded.fileName, dateOrder: loaded.result.dateOrder,
+    minTime, maxTime, usedColumns: usedColumnNames(),
+  });
+}
+
+// ---------- โน้ตบนกราฟ + บันทึกรูป ----------
+const drawState = { mode: null, color: "rgb(229, 50, 45)" }; // mode: null | "pen" | "eraser"
+
+function renderDrawToolbar() {
+  $("draw-toggle").setAttribute("aria-pressed", String(drawState.mode !== null));
+  $("draw-tools").hidden = drawState.mode === null;
+  $("draw-eraser").setAttribute("aria-pressed", String(drawState.mode === "eraser"));
+  document.querySelectorAll(".color-btn").forEach((b) => {
+    b.classList.toggle("selected", drawState.mode === "pen" && b.dataset.color === drawState.color);
+  });
+}
+
+function setDrawMode(mode) {
+  drawState.mode = mode;
+  if (chart) chart.setDrawMode(mode);
+  renderDrawToolbar();
+}
+
+// ชื่อไฟล์รูป: AHTH_<ชื่อไฟล์ log>_<เวลาเริ่มที่แสดง>.png
+function imageFileName(min) {
+  const base = loaded.fileName.replace(/\.[^.]+$/, "").replace(/[^\w\-]+/g, "_");
+  return `AHTH_${base}_${formatDateTime(Math.floor(min)).replace(/[: ]/g, "-")}.png`;
+}
+
+async function saveChartImage() {
+  if (!chart) return;
+  const css = getComputedStyle(document.documentElement);
+  const [min, max] = chart.getRange();
+  const caption = `${loaded.fileName} · ${formatDateTime(Math.floor(min))} → ${formatDateTime(Math.ceil(max))}` +
+    ` · ${document.getElementById("info-software").textContent}`;
+  try {
+    const blob = await chart.exportImage({
+      background: css.getPropertyValue("--surface").trim(),
+      captionColor: css.getPropertyValue("--muted").trim(),
+      caption,
+    });
+    // ดาวน์โหลดในเครื่อง (ไม่ส่งไปไหน)
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = imageFileName(min);
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (err) {
+    showMessage("error", [{ msg: MSG.saveFailed }]);
+  }
 }
 
 function setItemVisible(item, show) {
@@ -750,6 +831,20 @@ function bindEvents() {
   el.rangeApply.addEventListener("click", applyRangeInputs);
   el.zoomReset.addEventListener("click", () => chart && chart.resetZoom());
   el.clearSelection.addEventListener("click", () => chart && chart.clearSelection());
+
+  // โน้ตบนกราฟ
+  $("draw-toggle").addEventListener("click", () => setDrawMode(drawState.mode ? null : "pen"));
+  $("draw-eraser").addEventListener("click", () => setDrawMode(drawState.mode === "eraser" ? "pen" : "eraser"));
+  $("draw-clear").addEventListener("click", () => chart && chart.clearNotes());
+  document.querySelectorAll(".color-btn").forEach((b) => b.addEventListener("click", () => {
+    drawState.color = b.dataset.color;
+    if (chart) chart.setDrawColor(drawState.color);
+    setDrawMode("pen");
+  }));
+  $("save-png").addEventListener("click", saveChartImage);
+  $("raw-open").addEventListener("click", showRawData);
+  initRawData();
+  renderDrawToolbar();
 
   // เปลี่ยนภาษา → วาดข้อความที่สร้างด้วย JS ใหม่
   onLanguageChange(() => {

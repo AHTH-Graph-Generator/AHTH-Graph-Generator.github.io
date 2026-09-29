@@ -160,6 +160,86 @@ main { padding: 20px 16px 40px; }
 .chart .sel-arrow { font-size: 0.55rem; line-height: 1; }
 .chart .sel-text { padding: 0 6px; background: var(--surface); border-radius: 4px; }
 .chart .u-over.panning { cursor: grabbing; }
+/* จอสัมผัส: ลากนิ้วแนวตั้ง = เลื่อนหน้าเว็บ (browser ทำเอง), แนวนอน / 2 นิ้ว = กราฟจัดการเอง (js/chart.js touchSupport)
+   และไม่ให้กดค้างแล้วขึ้นเมนูเลือกข้อความ/บันทึกรูป */
+.chart .u-over { touch-action: pan-y; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+/* ----- โน้ตบนกราฟ ----- */
+.draw-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 8px; }
+.draw-tools { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tool-btn {
+  font: inherit; font-size: 0.85rem; padding: 3px 10px; border-radius: 6px; cursor: pointer;
+  color: var(--primary); background: transparent; border: 1px solid var(--primary);
+}
+.tool-btn[aria-pressed="true"] { color: #fff; background: var(--primary); }
+.color-btn {
+  width: 22px; height: 22px; border-radius: 50%; cursor: pointer; padding: 0;
+  border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border);
+}
+.color-btn.selected { box-shadow: 0 0 0 2px var(--text); }
+/* ชั้นวาด: ปกติโปร่งทะลุ (กราฟใช้งานได้ตามเดิม) เปิดโหมดวาดแล้วรับการวาดแทน */
+.chart .annotate-layer { position: absolute; left: 0; top: 0; pointer-events: none; touch-action: none; }
+.chart .annotate-layer.active { pointer-events: auto; cursor: crosshair; }
+.chart .annotate-layer.active.eraser { cursor: cell; }
+
+/* ----- หน้าต่าง Real data ----- */
+body.modal-open { overflow: hidden; }
+.modal {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.55); padding: 16px;
+}
+.modal-box {
+  display: flex; flex-direction: column; gap: 10px;
+  width: min(1400px, 100%); height: min(90vh, 100%);
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+}
+.modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.modal-head h2 { font-size: 1.15rem; }
+.icon-btn {
+  font: inherit; font-size: 1rem; width: 32px; height: 32px; border-radius: 6px; cursor: pointer;
+  color: var(--text); background: var(--bg); border: 1px solid var(--border);
+}
+.raw-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.raw-controls input[type="search"] {
+  font: inherit; font-size: 0.9rem; min-width: 220px; padding: 5px 8px;
+  color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+}
+.raw-check { display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer; }
+.raw-pager { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.raw-controls button:disabled { opacity: 0.4; cursor: default; }
+.error-text { color: var(--error-border); }
+.raw-scroll { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+.raw-table {
+  table-layout: fixed; border-collapse: separate; border-spacing: 0;
+  font-size: 12.5px; font-variant-numeric: tabular-nums;
+}
+.raw-table th, .raw-table td {
+  padding: 0 8px; height: 24px; line-height: 23px; white-space: nowrap; text-align: right;
+  overflow: hidden; text-overflow: ellipsis;
+  border-bottom: 1px solid var(--border); border-right: 1px solid var(--grid);
+}
+.raw-table tr.spacer td { padding: 0; border: 0; height: auto; }
+/* หัวตารางและ 2 คอลัมน์แรก (บรรทัด / เวลา) ตรึงไว้ตอนเลื่อน */
+.raw-table th { position: sticky; top: 0; z-index: 2; background: var(--bg); color: var(--muted); font-weight: 600; }
+.raw-table .sticky-1, .raw-table .sticky-2 { position: sticky; z-index: 1; background: var(--surface); }
+.raw-table th.sticky-1, .raw-table th.sticky-2 { z-index: 3; background: var(--bg); }
+.raw-table .sticky-1 { left: 0; }
+.raw-table .sticky-2 { left: 64px; text-align: left; border-right: 2px solid var(--border); }  /* 64px = LINE_COL_PX ใน rawdata.js */
+.raw-table tbody tr:hover td { background: var(--bg); }
+@media (max-width: 640px) {
+  .modal { padding: 0; }
+  .modal-box { height: 100%; border-radius: 0; }
+  .raw-controls input[type="search"] { min-width: 0; flex: 1 1 100%; }
+  .raw-pager { margin-left: 0; }
+}
+
+/* ข้อความวิธีใช้: คอมแสดงวิธีใช้เมาส์, จอสัมผัส (ไม่มี hover) แสดงวิธีใช้นิ้ว */
+.hint-touch { display: none; }
+@media (hover: none) and (pointer: coarse) {
+  .hint-mouse { display: none; }
+  .hint-touch { display: flex; }
+}
 
 /* ----- ตาราง stats ----- */
 .cursor-time { margin-bottom: 8px; }

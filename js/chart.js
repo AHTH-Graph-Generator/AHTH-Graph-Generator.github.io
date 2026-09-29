@@ -10,6 +10,7 @@
 // ============================================================
 
 import { Y_AXIS_RANGE } from "./logformat.js";
+import { drawAnnotations, createAnnotator } from "./annotate.js";
 
 const uPlot = window.uPlot;
 
@@ -118,9 +119,142 @@ function interactionPlugin(times, onClickClear) {
           document.addEventListener("mousemove", move);
           document.addEventListener("mouseup", finish);
         });
+
+        touchSupport(u, over, dataMin, dataMax);
       },
     },
   };
+}
+
+// ---------- จอสัมผัส (iPad / iPhone / Android) + ปากกา ----------
+//   ปากกา (Apple Pencil / stylus): ลากทิศไหนก็ได้ = เลือกช่วงเสมอ (ไม่เลื่อนหน้าเว็บ)
+//                                  ลอยปากกาเหนือจอ (hover) = เคอร์เซอร์ตามปลายปากกา เหมือนเมาส์
+//   แตะ 1 ครั้ง        → เคอร์เซอร์ไปจุดนั้น (ดูค่า ณ จุดนั้น)
+//   ลาก 1 นิ้วแนวนอน   → เลือกช่วง (เหมือนลากคลิกซ้าย) · ลากแนวตั้ง = เลื่อนหน้าเว็บตามปกติ
+//   จีบ/ถ่าง 2 นิ้ว     → zoom เข้า/ออก · ลาก 2 นิ้ว → เลื่อนกราฟซ้าย/ขวา
+//   แตะ 2 ครั้งเร็วๆ    → ดูทั้งหมด
+const TOUCH_MOVE_PX = 8;        // ขยับน้อยกว่านี้ = แตะ
+const DOUBLE_TAP_MS = 300;
+
+function touchSupport(u, over, dataMin, dataMax) {
+  const rectLeft = () => over.getBoundingClientRect().left;
+  const rectTop = () => over.getBoundingClientRect().top;
+  const clampX = (x) => Math.min(Math.max(x, 0), over.clientWidth);
+  const pointX = (t) => clampX(t.clientX - rectLeft());
+  const setCursorAt = (t) => u.setCursor({ left: pointX(t), top: Math.min(Math.max(t.clientY - rectTop(), 0), over.clientHeight) });
+
+  let mode = null;   // "pending" | "select" | "scroll" | "pinch"
+  let start = null;  // ข้อมูลตอนเริ่มท่า
+  let lastTap = { time: 0, x: -1000 };
+  // ชนิดอุปกรณ์ของการแตะล่าสุด — pointerdown เกิดก่อน touchstart เสมอ
+  let lastPointerType = "";
+  over.addEventListener("pointerdown", (e) => { lastPointerType = e.pointerType; });
+  const isPen = (t) => t.touchType === "stylus" || lastPointerType === "pen";
+
+  // ปากกาลอยเหนือจอ (iPad ที่รองรับ hover) → เคอร์เซอร์ตามปลายปากกา
+  over.addEventListener("pointermove", (e) => {
+    if (e.pointerType === "pen" && e.buttons === 0) setCursorAt(e);
+  });
+
+  const selectBox = (x0, x1) => ({
+    left: Math.min(x0, x1), width: Math.abs(x1 - x0), top: 0, height: over.clientHeight,
+  });
+
+  const beginPinch = (e) => {
+    const [a, b] = e.touches;
+    const { min, max } = u.scales.x;
+    const midX = clampX((a.clientX + b.clientX) / 2 - rectLeft());
+    start = {
+      dist: Math.max(20, Math.abs(a.clientX - b.clientX)), min, max,
+      midVal: u.posToVal(midX, "x"), width: over.clientWidth,
+    };
+    mode = "pinch";
+  };
+
+  over.addEventListener("touchstart", (e) => {
+    if (e.touches.length >= 2) { beginPinch(e); e.preventDefault(); return; }
+    const t = e.touches[0];
+    start = { x: t.clientX, y: t.clientY, x0: pointX(t) };
+    mode = "pending";
+    // ปากกา: เริ่มเลือกช่วงทันที ไม่ต้องรอดูทิศทาง และไม่ให้หน้าเว็บเลื่อน
+    if (isPen(t)) { start.pen = true; e.preventDefault(); }
+  }, { passive: false });
+
+  over.addEventListener("touchmove", (e) => {
+    if (e.touches.length >= 2) {
+      if (mode !== "pinch") beginPinch(e);
+      e.preventDefault();
+      const [a, b] = e.touches;
+      const dist = Math.max(20, Math.abs(a.clientX - b.clientX));
+      const span = (start.max - start.min) * (start.dist / dist);
+      // จุดกึ่งกลางนิ้วตอนนี้ต้องยังตรงกับเวลาเดิมใต้นิ้ว (ซูม + เลื่อนไปพร้อมกัน)
+      const midX = clampX((a.clientX + b.clientX) / 2 - rectLeft());
+      const min = start.midVal - (midX / start.width) * span;
+      const [cMin, cMax] = clampRange(min, min + span, dataMin, dataMax); // ไม่เกินขอบข้อมูล / ไม่แคบเกิน
+      u.setScale("x", { min: cMin, max: cMax });
+      return;
+    }
+    if (!start || mode === "scroll" || mode === "pinch") return;
+    const t = e.touches[0];
+    const dx = t.clientX - start.x, dy = t.clientY - start.y;
+    if (mode === "pending") {
+      if (start.pen) e.preventDefault();
+      if (Math.abs(dx) < TOUCH_MOVE_PX && Math.abs(dy) < TOUCH_MOVE_PX) return;
+      // ปากกา = เลือกช่วงเสมอ · นิ้ว: แนวนอน = เลือกช่วง, แนวตั้ง = ให้หน้าเว็บเลื่อนเอง
+      mode = start.pen || Math.abs(dx) > Math.abs(dy) ? "select" : "scroll";
+      if (mode === "scroll") return;
+    }
+    e.preventDefault();
+    u.setSelect(selectBox(start.x0, pointX(t)), false);
+    setCursorAt(t);
+  }, { passive: false });
+
+  over.addEventListener("touchend", (e) => {
+    if (e.touches.length > 0) return; // ยังมีนิ้วค้าง
+    // กันไม่ให้ browser จำลองคลิกเมาส์ตามมา (จะไปยกเลิกช่วงที่เลือก)
+    if (e.cancelable) e.preventDefault();
+    const t = e.changedTouches[0];
+    if (mode === "select") {
+      u.setSelect(selectBox(start.x0, pointX(t)), true); // true = แจ้ง hook setSelect → ตาราง/ป้ายระยะเวลา
+    } else if (mode === "pending") {
+      const now = Date.now();
+      if (now - lastTap.time < DOUBLE_TAP_MS && Math.abs(t.clientX - lastTap.x) < 30) {
+        u.setScale("x", { min: dataMin, max: dataMax });
+        lastTap = { time: 0, x: -1000 };
+      } else {
+        setCursorAt(t);
+        lastTap = { time: now, x: t.clientX };
+      }
+    }
+    mode = null;
+    start = null;
+  }, { passive: false });
+
+  over.addEventListener("touchcancel", () => { mode = null; start = null; });
+}
+
+// ---------- บันทึกกราฟเป็นรูป PNG ----------
+// ใช้ canvas ของ uPlot (เส้น + แกน + สัญลักษณ์ + โน้ต) วางบนพื้นสีเดียวกับหน้าเว็บ + บรรทัดคำอธิบายด้านล่าง
+// ทำในเครื่องทั้งหมด ไม่ส่งไฟล์ไปไหน
+function exportImage(u, { background, captionColor, caption }) {
+  const src = u.ctx.canvas;
+  const ratio = window.devicePixelRatio || 1;
+  const pad = Math.round(12 * ratio);
+  const captionH = caption ? Math.round(28 * ratio) : 0;
+  const out = document.createElement("canvas");
+  out.width = src.width + pad * 2;
+  out.height = src.height + pad * 2 + captionH;
+  const ctx = out.getContext("2d");
+  ctx.fillStyle = background;
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.drawImage(src, pad, pad);
+  if (caption) {
+    ctx.fillStyle = captionColor;
+    ctx.font = `${Math.round(13 * ratio)}px "Segoe UI", "Tahoma", "Noto Sans Thai", sans-serif`;
+    ctx.textBaseline = "middle";
+    ctx.fillText(caption, pad, pad + src.height + captionH / 2);
+  }
+  return new Promise((resolve) => out.toBlob(resolve, "image/png"));
 }
 
 // ---------- เส้นขั้นบันได ----------
@@ -202,8 +336,12 @@ function lowerBound(times, target) {
  * @param seriesList [{ label, color, values (Array, null = ว่าง), show, stepped, dash, width }]
  * @param handlers   { onRange(min, max), onCursor(index | null), onSelect(range | null), formatDuration(seconds) }
  * @param markerLayers [{ shape, color, y, show, drawWhen, raw (ค่าดิบ) | times (เวลาที่วาด) }]
+ * @param notes      { strokes: [] } โน้ตที่วาดบนกราฟ (main.js เป็นเจ้าของ — อยู่รอดตอนสร้างกราฟใหม่)
  */
-export function createChart(container, times, seriesList, handlers, markerLayers = []) {
+export function createChart(container, times, seriesList, handlers, markerLayers = [], notes = { strokes: [] }) {
+  // ชั้นวาดโน้ตถูกสร้างตอน uPlot พร้อม (hook ready) → จำโหมด/สีที่สั่งก่อนหน้านั้นไว้ใช้ทีหลัง
+  let annotator = null;
+  const drawSettings = { mode: null, color: null };
   let selection = null; // { min, max } เวลา (วินาที) ของช่วงที่ลากเลือก
 
   const axisStyle = {
@@ -291,8 +429,16 @@ export function createChart(container, times, seriesList, handlers, markerLayers
         drawSelection(u);
         handlers.onRange(u.scales.x.min, u.scales.x.max);
       }],
-      setSize: [(u) => drawSelection(u)],
-      draw: [(u) => markerLayers.forEach((layer) => layer.show && drawMarkerLayer(u, times, layer))],
+      setSize: [(u) => { drawSelection(u); annotator?.resize(); }],
+      draw: [(u) => {
+        markerLayers.forEach((layer) => layer.show && drawMarkerLayer(u, times, layer));
+        drawAnnotations(u, notes.strokes); // โน้ตวาดทับบนสุด
+      }],
+      ready: [(u) => {
+        annotator = createAnnotator(u, notes);
+        if (drawSettings.color) annotator.setColor(drawSettings.color);
+        annotator.setMode(drawSettings.mode);
+      }],
       setCursor: [(u) => handlers.onCursor(u.cursor.idx ?? null)],
     },
   };
@@ -312,6 +458,11 @@ export function createChart(container, times, seriesList, handlers, markerLayers
     getRange: () => [plot.scales.x.min, plot.scales.x.max],
     getSelection: () => (selection ? { ...selection } : null),
     refreshLabels: () => updateSpanLabel(plot), // เรียกหลังเปลี่ยนภาษา
+    // ---- โน้ต ----
+    setDrawMode: (mode) => { drawSettings.mode = mode; annotator?.setMode(mode); },   // null | "pen" | "eraser"
+    setDrawColor: (color) => { drawSettings.color = color; annotator?.setColor(color); },
+    clearNotes: () => annotator?.clear(),
+    exportImage: (options) => exportImage(plot, options),
     clearSelection,
     destroy: () => { observer.disconnect(); plot.destroy(); },
   };

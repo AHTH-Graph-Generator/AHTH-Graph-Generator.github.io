@@ -8,8 +8,8 @@
 // ============================================================
 
 import {
-  SENSORS, GAP_MEDIAN_FACTOR, TIME_COLUMN, TEMP_SCALE, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN,
-  findColumn, formatSoftware, toSigned8, heaterCategory, normalizeName, parseMetadata, parseIntStrict,
+  SENSORS, GAP_MEDIAN_FACTOR, TEMP_SCALE, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN,
+  findColumn, findTimeColumn, formatSoftware, toSigned8, heaterCategory, normalizeName, parseMetadata, parseIntStrict,
   parseDateParts, dateOrderHint, defaultDateOrder, partsToEpoch,
 } from "./logformat.js";
 import { readTextRecords, readXlsxRecords, isZipFile, XlsxError } from "./sources.js";
@@ -62,9 +62,9 @@ function metadataText(fields) {
 
 // ---------- หาคอลัมน์จาก header ----------
 function buildColumnMap(names, lineNo) {
-  let timeIdx = findColumn(names, TIME_COLUMN);
-  // สำรอง: คอลัมน์แรกที่ชื่อมีทั้ง Date และ Time
-  if (timeIdx < 0 && /date.*time/i.test(normalizeName(names[0] || ""))) timeIdx = 0;
+  let timeIdx = findTimeColumn(names);
+  // สำรอง: คอลัมน์แรกที่ชื่อมีทั้ง Date และ Time หรือคำว่า time
+  if (timeIdx < 0 && /date.*time|time/i.test(normalizeName(names[0] || ""))) timeIdx = 0;
   if (timeIdx < 0) throw new ParseError("noTimeColumn", { line: lineNo });
 
   const sensors = [];
@@ -278,7 +278,8 @@ function createParser() {
       // บรรทัดแรกที่มีข้อมูล: metadata หรือ header (ถ้าไม่มี metadata)
       state.ini = parseMetadata(metadataText(fields));
       if (state.ini !== null) return;
-      if (findColumn(fields, TIME_COLUMN) >= 0) {
+      // ไม่มีบรรทัด metadata แต่บรรทัดแรกเป็น header (เช่น ไฟล์ ConvertCSV ที่ใช้ "Timestamp") → อ่านต่อได้ แจ้งเตือน
+      if (findTimeColumn(fields) >= 0) {
         state.metadataMissing = true;
         onHeader(fields, lineNo);
         return;
@@ -358,7 +359,52 @@ async function readRecords(file, name, onRecord) {
   return readTextRecords(file, onRecord, onProgress);
 }
 
+// ---------- Real data: อ่านไฟล์เดิมซ้ำ เอาแถวดิบทุกคอลัมน์ในช่วงเวลา [minTime, maxTime] ----------
+// ไม่ต้องให้ผู้ใช้เลือกไฟล์ใหม่ — main.js ส่ง File object เดิมมา (อ่านในเครื่อง ไม่ส่งไปไหน)
+// เก็บแต่ละแถวเป็นข้อความเดียว (คั่น TAB) ประหยัดหน่วยความจำ — main.js แยกช่องเฉพาะหน้าที่แสดง
+const RAW_MAX_ROWS = 100000;
+class StopReading extends Error {}
+
+async function extractRange({ file, name, minTime, maxTime, dateOrder }) {
+  let header = null, timeIdx = -1, total = 0;
+  const lines = [], lineNos = [], times = [];
+  const onRecord = (fields, lineNo) => {
+    if (isBlank(fields)) return;
+    if (!header) {
+      if (parseMetadata(metadataText(fields)) !== null) return; // บรรทัด metadata
+      header = fields.map((f) => f.trim());
+      timeIdx = findTimeColumn(fields);
+      if (timeIdx < 0) timeIdx = 0;
+      return;
+    }
+    const time = partsToEpoch(parseDateParts(fields[timeIdx]), dateOrder);
+    if (Number.isNaN(time) || time < minTime) return;
+    if (time > maxTime) throw new StopReading(); // เวลาเรียงจากน้อยไปมาก → เลยช่วงแล้ว หยุดอ่านได้
+    total++;
+    if (lines.length >= RAW_MAX_ROWS) return;
+    lines.push(fields.join("\t"));
+    lineNos.push(lineNo);
+    times.push(time);
+  };
+  try {
+    await readRecords(file, name, onRecord);
+  } catch (err) {
+    if (!(err instanceof StopReading)) throw err;
+  }
+  if (!header) throw new ParseError("noHeader", { line: 1 });
+  return { header, timeIdx, lines, lineNos, times, total, truncated: total > lines.length };
+}
+
 self.onmessage = async ({ data }) => {
+  if (data.type === "extract") {
+    try {
+      postMessage({ type: "done", result: await extractRange(data) });
+    } catch (err) {
+      postMessage({ type: "error", code: err instanceof ParseError ? err.code : "rawReadFailed",
+        params: err instanceof ParseError ? err.params : { message: String(err && err.message || err) } });
+    }
+    return;
+  }
   try {
     if (!data.file || data.file.size === 0) throw new ParseError("emptyFile");
     const parser = createParser();

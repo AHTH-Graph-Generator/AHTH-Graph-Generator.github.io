@@ -86,12 +86,42 @@
               <button id="zoom-reset" class="btn secondary" type="button" data-th="ดูทั้งหมด" data-en="Reset zoom">ดูทั้งหมด</button>
             </div>
           </div>
-          <ul class="hint muted">
+          <!-- วิธีใช้: เมาส์ (คอม) / นิ้ว (iPad, มือถือ) — style.css เลือกแสดงตามอุปกรณ์ -->
+          <ul class="hint hint-mouse muted">
             <li data-th="ลูกกลิ้งเมาส์ = ซูมเข้า/ออก" data-en="Mouse wheel = zoom in/out">ลูกกลิ้งเมาส์ = ซูมเข้า/ออก</li>
             <li data-th="ลากคลิกขวา = เลื่อนกราฟซ้าย/ขวา" data-en="Right-drag = pan left/right">ลากคลิกขวา = เลื่อนกราฟซ้าย/ขวา</li>
             <li data-th="ลากคลิกซ้าย = เลือกช่วงเพื่อดูค่า · คลิกซ้ายเพื่อยกเลิก" data-en="Left-drag = select a range to inspect · left-click to clear">ลากคลิกซ้าย = เลือกช่วงเพื่อดูค่า · คลิกซ้ายเพื่อยกเลิก</li>
             <li data-th="ดับเบิลคลิก = ดูทั้งหมด" data-en="Double-click = reset zoom">ดับเบิลคลิก = ดูทั้งหมด</li>
           </ul>
+          <ul class="hint hint-touch muted">
+            <li data-th="แตะ = ดูค่า ณ จุดนั้น" data-en="Tap = show values at that point">แตะ = ดูค่า ณ จุดนั้น</li>
+            <li data-th="ลากนิ้วแนวนอน = เลือกช่วง" data-en="Drag sideways = select a range">ลากนิ้วแนวนอน = เลือกช่วง</li>
+            <li data-th="จีบ/ถ่าง 2 นิ้ว = ซูม · ลาก 2 นิ้ว = เลื่อนกราฟ" data-en="Pinch = zoom · two-finger drag = pan">จีบ/ถ่าง 2 นิ้ว = ซูม · ลาก 2 นิ้ว = เลื่อนกราฟ</li>
+            <li data-th="แตะ 2 ครั้ง = ดูทั้งหมด" data-en="Double-tap = reset zoom">แตะ 2 ครั้ง = ดูทั้งหมด</li>
+            <li data-th="ปากกา: ลากทิศไหนก็ได้ = เลือกช่วง · ลอยปากกา = ดูค่า" data-en="Pencil: drag any direction = select · hover = show values">ปากกา: ลากทิศไหนก็ได้ = เลือกช่วง · ลอยปากกา = ดูค่า</li>
+          </ul>
+
+          <!-- แถบเครื่องมือโน้ต: วาดด้วยปากกา/นิ้ว/เมาส์ + บันทึกกราฟเป็นรูป (js/annotate.js) -->
+          <div class="draw-toolbar" role="toolbar">
+            <button id="draw-toggle" class="tool-btn" type="button" aria-pressed="false"
+                    data-th="✏️ วาดโน้ต" data-en="✏️ Draw notes">✏️ วาดโน้ต</button>
+            <span id="draw-tools" class="draw-tools" hidden>
+              <button class="color-btn" type="button" data-color="rgb(229, 50, 45)" style="background: rgb(229, 50, 45)"
+                      data-th-title="สีแดง" data-en-title="Red" aria-label="Red"></button>
+              <button class="color-btn" type="button" data-color="rgb(31, 111, 235)" style="background: rgb(31, 111, 235)"
+                      data-th-title="สีน้ำเงิน" data-en-title="Blue" aria-label="Blue"></button>
+              <button class="color-btn" type="button" data-color="rgb(255, 140, 0)" style="background: rgb(255, 140, 0)"
+                      data-th-title="สีส้ม" data-en-title="Orange" aria-label="Orange"></button>
+              <button id="draw-eraser" class="tool-btn" type="button" aria-pressed="false"
+                      data-th="ยางลบ" data-en="Eraser">ยางลบ</button>
+              <button id="draw-clear" class="tool-btn" type="button"
+                      data-th="ล้างโน้ตทั้งหมด" data-en="Clear notes">ล้างโน้ตทั้งหมด</button>
+            </span>
+            <button id="raw-open" class="tool-btn" type="button"
+                    data-th="📋 Real data (ค่าจริงจาก log)" data-en="📋 Real data">📋 Real data (ค่าจริงจาก log)</button>
+            <button id="save-png" class="tool-btn" type="button"
+                    data-th="💾 บันทึกกราฟเป็นรูป" data-en="💾 Save chart as PNG">💾 บันทึกกราฟเป็นรูป</button>
+          </div>
 
           <div id="chart" class="chart"></div>
 
@@ -116,6 +146,31 @@
       </div>
     </section>
   </main>
+
+  <!-- หน้าต่าง Real data: ตารางค่าดิบจากไฟล์ log ในช่วงที่เลือก (js/rawdata.js) -->
+  <div id="raw-modal" class="modal" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="raw-title">
+      <div class="modal-head">
+        <div>
+          <h2 id="raw-title" data-th="ข้อมูลจริงจาก log" data-en="Real data from log">ข้อมูลจริงจาก log</h2>
+          <span id="raw-range" class="muted small"></span>
+        </div>
+        <button id="raw-close" class="icon-btn" type="button" aria-label="Close"
+                data-th-title="ปิด (Esc)" data-en-title="Close (Esc)">✕</button>
+      </div>
+      <div class="raw-controls">
+        <input id="raw-search" type="search" autocomplete="off">
+        <label class="raw-check"><input id="raw-used-only" type="checkbox">
+          <span data-th="เฉพาะคอลัมน์ที่ใช้ในกราฟ" data-en="Only columns used in the chart">เฉพาะคอลัมน์ที่ใช้ในกราฟ</span></label>
+        <span id="raw-cols" class="muted small"></span>
+        <span id="raw-page" class="raw-pager small"></span>
+        <button id="raw-export" class="btn" type="button"
+                data-th="⬇ Export CSV" data-en="⬇ Export CSV">⬇ Export CSV</button>
+      </div>
+      <p id="raw-status" class="small" hidden></p>
+      <div id="raw-scroll" class="raw-scroll"><table id="raw-table" class="raw-table"></table></div>
+    </div>
+  </div>
 
   <footer class="footer">
     <div class="container">
