@@ -81,6 +81,20 @@
               <span data-th="สิ้นสุด" data-en="To">สิ้นสุด</span>
               <input id="range-end" type="datetime-local" step="1">
             </label>
+            <!-- time zone ที่ใช้แสดงเวลา (ไฟล์ = เวลาไทย): พิมพ์ค้นหาได้ + ปุ่มกลับเป็นเวลาไทย — js/main.js -->
+            <div class="tz-field">
+              <label for="time-zone" data-th="Time zone (พิมพ์ค้นหาได้)" data-en="Time zone (type to search)">Time zone (พิมพ์ค้นหาได้)</label>
+              <div class="tz-row">
+                <div class="tz-combo">
+                  <input id="time-zone" type="text" role="combobox" autocomplete="off" spellcheck="false"
+                         aria-autocomplete="list" aria-expanded="false" aria-controls="tz-list">
+                  <ul id="tz-list" class="tz-list" role="listbox" hidden></ul>
+                </div>
+                <button id="tz-reset" class="btn secondary" type="button"
+                        data-th="↺ เวลาไทย" data-en="↺ Thai time"
+                        data-th-title="กลับเป็นเวลาไทย (เวลาในไฟล์)" data-en-title="Back to Thai time (file time)">↺ เวลาไทย</button>
+              </div>
+            </div>
             <div class="range-buttons">
               <button id="range-apply" class="btn" type="button" data-th="แสดงช่วงนี้" data-en="Apply">แสดงช่วงนี้</button>
               <button id="zoom-reset" class="btn secondary" type="button" data-th="ดูทั้งหมด" data-en="Reset zoom">ดูทั้งหมด</button>
@@ -91,13 +105,13 @@
             <li data-th="ลูกกลิ้งเมาส์ = ซูมเข้า/ออก" data-en="Mouse wheel = zoom in/out">ลูกกลิ้งเมาส์ = ซูมเข้า/ออก</li>
             <li data-th="ลากคลิกขวา = เลื่อนกราฟซ้าย/ขวา" data-en="Right-drag = pan left/right">ลากคลิกขวา = เลื่อนกราฟซ้าย/ขวา</li>
             <li data-th="ลากคลิกซ้าย = เลือกช่วงเพื่อดูค่า · คลิกซ้ายเพื่อยกเลิก" data-en="Left-drag = select a range to inspect · left-click to clear">ลากคลิกซ้าย = เลือกช่วงเพื่อดูค่า · คลิกซ้ายเพื่อยกเลิก</li>
-            <li data-th="ดับเบิลคลิก = ดูทั้งหมด" data-en="Double-click = reset zoom">ดับเบิลคลิก = ดูทั้งหมด</li>
+            <li data-th="ดับเบิลคลิก = ดูค่าจริง (Real data) ณ จุดนั้น" data-en="Double-click = Real data at that point">ดับเบิลคลิก = ดูค่าจริง (Real data) ณ จุดนั้น</li>
           </ul>
           <ul class="hint hint-touch muted">
             <li data-th="แตะ = ดูค่า ณ จุดนั้น" data-en="Tap = show values at that point">แตะ = ดูค่า ณ จุดนั้น</li>
             <li data-th="ลากนิ้วแนวนอน = เลือกช่วง" data-en="Drag sideways = select a range">ลากนิ้วแนวนอน = เลือกช่วง</li>
             <li data-th="จีบ/ถ่าง 2 นิ้ว = ซูม · ลาก 2 นิ้ว = เลื่อนกราฟ" data-en="Pinch = zoom · two-finger drag = pan">จีบ/ถ่าง 2 นิ้ว = ซูม · ลาก 2 นิ้ว = เลื่อนกราฟ</li>
-            <li data-th="แตะ 2 ครั้ง = ดูทั้งหมด" data-en="Double-tap = reset zoom">แตะ 2 ครั้ง = ดูทั้งหมด</li>
+            <li data-th="แตะ 2 ครั้ง = ดูค่าจริง (Real data) ณ จุดนั้น" data-en="Double-tap = Real data at that point">แตะ 2 ครั้ง = ดูค่าจริง (Real data) ณ จุดนั้น</li>
             <li data-th="ปากกา: ลากทิศไหนก็ได้ = เลือกช่วง · ลอยปากกา = ดูค่า" data-en="Pencil: drag any direction = select · hover = show values">ปากกา: ลากทิศไหนก็ได้ = เลือกช่วง · ลอยปากกา = ดูค่า</li>
           </ul>
 
@@ -167,14 +181,45 @@
         <button id="raw-export" class="btn" type="button"
                 data-th="⬇ Export CSV" data-en="⬇ Export CSV">⬇ Export CSV</button>
       </div>
+      <!-- คอลัมน์ที่เลือกไว้เทียบกัน (☆ ที่หัวคอลัมน์) — อยู่ติดคอลัมน์เวลาเสมอ ไม่ว่าจะค้นหาอะไร -->
+      <div id="raw-compare" class="raw-compare" hidden>
+        <span class="small" data-th="เทียบ:" data-en="Compare:">เทียบ:</span>
+        <span id="raw-picked" class="raw-picked"></span>
+        <label class="raw-check"><input id="raw-picked-only" type="checkbox">
+          <span data-th="แสดงเฉพาะคอลัมน์ที่เลือก" data-en="Show selected columns only">แสดงเฉพาะคอลัมน์ที่เลือก</span></label>
+        <button id="raw-picked-clear" class="link-btn" type="button" data-th="ล้างที่เลือก" data-en="Clear">ล้างที่เลือก</button>
+      </div>
+      <!-- สถานะการเรียง / กรอง -->
+      <div id="raw-order" class="raw-order small" hidden>
+        <span id="raw-order-text"></span>
+        <button id="raw-order-clear" class="link-btn" type="button"
+                data-th="ล้างการเรียง/กรอง" data-en="Clear sort / filter">ล้างการเรียง/กรอง</button>
+      </div>
       <p id="raw-status" class="small" hidden></p>
       <div id="raw-scroll" class="raw-scroll"><table id="raw-table" class="raw-table"></table></div>
+      <!-- เมนูหัวคอลัมน์ (คลิกชื่อคอลัมน์): เลือกเทียบ / เรียง / กรองค่า แบบ Excel -->
+      <div id="raw-menu" class="raw-menu" hidden role="menu">
+        <div id="raw-menu-title" class="raw-menu-title"></div>
+        <button id="raw-menu-pick" type="button" role="menuitem"></button>
+        <button id="raw-menu-asc" type="button" role="menuitem" data-th="▲ เรียงน้อย → มาก" data-en="▲ Sort smallest → largest">▲ เรียงน้อย → มาก</button>
+        <button id="raw-menu-desc" type="button" role="menuitem" data-th="▼ เรียงมาก → น้อย" data-en="▼ Sort largest → smallest">▼ เรียงมาก → น้อย</button>
+        <label class="raw-menu-filter">
+          <span data-th="กรองค่า" data-en="Filter">กรองค่า</span>
+          <input id="raw-menu-filter" type="text" autocomplete="off" spellcheck="false">
+        </label>
+        <p class="raw-menu-help muted" data-th="เช่น 0 · !=0 · >100 · <=-5 · 10..20 · ข้อความ" data-en="e.g. 0 · !=0 · >100 · <=-5 · 10..20 · text">เช่น 0 · !=0 · >100 · <=-5 · 10..20 · ข้อความ</p>
+        <div class="raw-menu-actions">
+          <button id="raw-menu-apply" class="btn" type="button" data-th="กรอง" data-en="Filter">กรอง</button>
+          <button id="raw-menu-unfilter" class="btn secondary" type="button" data-th="ล้างตัวกรอง" data-en="Clear filter">ล้างตัวกรอง</button>
+        </div>
+      </div>
     </div>
   </div>
 
   <footer class="footer">
     <div class="container">
       <p>© <span id="now"></span></p>
+      <p class="footer-credit">Developed by Apiwat Kamsiri</p>
     </div>
   </footer>
 

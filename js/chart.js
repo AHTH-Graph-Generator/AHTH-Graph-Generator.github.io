@@ -6,10 +6,10 @@
 //   ลากคลิกซ้าย       → เลือกช่วง (ไม่ zoom) ตารางแสดงค่าของช่วงที่เลือก
 //   คลิกซ้ายเฉยๆ      → ยกเลิกช่วงที่เลือก
 //   ลากคลิกขวา        → เลื่อนกราฟซ้าย/ขวา (pan) ช่วงเวลากว้างเท่าเดิม
-//   ดับเบิลคลิก        → ดูทั้งหมด (reset zoom)
+//   ดับเบิลคลิก        → เปิด Real data ของช่วงที่แสดง เลื่อนไปแถว ณ จุดนั้น (ดูทั้งหมดใช้ปุ่ม "ดูทั้งหมด")
 // ============================================================
 
-import { Y_AXIS_RANGE } from "./logformat.js";
+import { Y_AXIS_RANGE, toDisplayEpoch } from "./logformat.js";
 import { drawAnnotations, createAnnotator } from "./annotate.js";
 
 const uPlot = window.uPlot;
@@ -20,8 +20,8 @@ const CLICK_TOLERANCE_PX = 3;    // ขยับน้อยกว่านี�
 const MARKER_SIZE = 3;           // รัศมี/ครึ่งความกว้างของ marker (px, CSS) — เล็กพอให้รู้ว่ามี
 const MARKER_GAP = 10;           // ระยะห่างขั้นต่ำระหว่าง marker (px, CSS) — ช่วงที่ค่าค้างนานจะเป็นแถวจุดเรียงกัน ไม่ทับกันเป็นแถบ
 
-// แสดงเวลาแบบ UTC = ตรงกับที่เขียนในไฟล์ (ไม่แปลง timezone)
-const tzDate = (ts) => uPlot.tzDate(new Date(ts * 1e3), "Etc/UTC");
+// แสดงเวลาตาม time zone ที่ผู้ใช้เลือก (ค่าเริ่มต้น = เวลาในไฟล์) — toDisplayEpoch คืนเวลาแบบ UTC-wall
+const tzDate = (ts) => uPlot.tzDate(new Date(toDisplayEpoch(ts) * 1e3), "Etc/UTC");
 
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -58,7 +58,7 @@ function clampRange(min, max, dataMin, dataMax) {
 }
 
 // plugin: ลูกกลิ้ง zoom, ลากขวาเลื่อนกราฟ, คลิกซ้ายยกเลิกการเลือก
-function interactionPlugin(times, onClickClear) {
+function interactionPlugin(times, onClickClear, onDoublePick) {
   const dataMin = times[0];
   const dataMax = times[times.length - 1];
 
@@ -120,7 +120,12 @@ function interactionPlugin(times, onClickClear) {
           document.addEventListener("mouseup", finish);
         });
 
-        touchSupport(u, over, dataMin, dataMax);
+        // ----- ดับเบิลคลิก = Real data ณ จุดนั้น (ปิด dblclick ของ uPlot ที่ reset zoom ไว้ใน cursor.bind) -----
+        over.addEventListener("dblclick", (e) => {
+          onDoublePick(u.posToVal(e.clientX - over.getBoundingClientRect().left, "x"));
+        });
+
+        touchSupport(u, over, dataMin, dataMax, onDoublePick);
       },
     },
   };
@@ -132,11 +137,30 @@ function interactionPlugin(times, onClickClear) {
 //   แตะ 1 ครั้ง        → เคอร์เซอร์ไปจุดนั้น (ดูค่า ณ จุดนั้น)
 //   ลาก 1 นิ้วแนวนอน   → เลือกช่วง (เหมือนลากคลิกซ้าย) · ลากแนวตั้ง = เลื่อนหน้าเว็บตามปกติ
 //   จีบ/ถ่าง 2 นิ้ว     → zoom เข้า/ออก · ลาก 2 นิ้ว → เลื่อนกราฟซ้าย/ขวา
-//   แตะ 2 ครั้งเร็วๆ    → ดูทั้งหมด
+//   แตะ 2 ครั้งเร็วๆ    → เปิด Real data ณ จุดนั้น (เหมือนดับเบิลคลิก)
 const TOUCH_MOVE_PX = 8;        // ขยับน้อยกว่านี้ = แตะ
 const DOUBLE_TAP_MS = 300;
 
-function touchSupport(u, over, dataMin, dataMax) {
+// ---------- หน้าตรวจปากกา: เปิดเว็บด้วย ?pentest ----------
+// กล่องมุมล่างซ้ายแสดงสัญญาณที่ browser ส่งมาจริง (ชนิดอุปกรณ์ / ปุ่ม / แรงกด) ใช้หาสาเหตุเวลา hover ไม่ทำงาน
+function penTestPanel(over) {
+  const panel = document.createElement("pre");
+  panel.className = "pentest-panel";
+  document.body.append(panel);
+  const counts = {};
+  const log = (e) => {
+    const key = `${e.type}:${e.pointerType ?? "-"}`;
+    counts[key] = (counts[key] || 0) + 1;
+    panel.textContent =
+      `ล่าสุด: ${e.type}\npointerType: ${e.pointerType ?? "(ไม่มี)"}\nbuttons: ${e.buttons}\n` +
+      `pressure: ${e.pressure ?? "-"}\n\nนับ:\n` +
+      Object.entries(counts).map(([k, v]) => `${k} × ${v}`).join("\n");
+  };
+  ["pointerover", "pointerenter", "pointermove", "pointerdown", "pointerup", "mousemove", "touchstart"]
+    .forEach((type) => over.addEventListener(type, log, { passive: true }));
+}
+
+function touchSupport(u, over, dataMin, dataMax, onDoublePick) {
   const rectLeft = () => over.getBoundingClientRect().left;
   const rectTop = () => over.getBoundingClientRect().top;
   const clampX = (x) => Math.min(Math.max(x, 0), over.clientWidth);
@@ -152,9 +176,15 @@ function touchSupport(u, over, dataMin, dataMax) {
   const isPen = (t) => t.touchType === "stylus" || lastPointerType === "pen";
 
   // ปากกาลอยเหนือจอ (iPad ที่รองรับ hover) → เคอร์เซอร์ตามปลายปากกา
-  over.addEventListener("pointermove", (e) => {
-    if (e.pointerType === "pen" && e.buttons === 0) setCursorAt(e);
-  });
+  // รับทุกอุปกรณ์ที่ไม่ใช่นิ้วและไม่ได้กด (Safari บางรุ่นรายงาน hover ของปากกาเป็น "mouse" หรือไม่ใส่ชนิด)
+  // เมาส์จริงก็ผ่านตรงนี้ด้วย — ไม่เป็นไร uPlot ขยับเคอร์เซอร์ไปที่เดียวกันอยู่แล้ว
+  const hoverMove = (e) => {
+    if (e.pointerType === "touch" || e.buttons !== 0) return;
+    setCursorAt(e);
+  };
+  over.addEventListener("pointermove", hoverMove);
+  over.addEventListener("pointerover", hoverMove);
+  if (new URLSearchParams(location.search).has("pentest")) penTestPanel(over);
 
   const selectBox = (x0, x1) => ({
     left: Math.min(x0, x1), width: Math.abs(x1 - x0), top: 0, height: over.clientHeight,
@@ -219,8 +249,8 @@ function touchSupport(u, over, dataMin, dataMax) {
     } else if (mode === "pending") {
       const now = Date.now();
       if (now - lastTap.time < DOUBLE_TAP_MS && Math.abs(t.clientX - lastTap.x) < 30) {
-        u.setScale("x", { min: dataMin, max: dataMax });
         lastTap = { time: 0, x: -1000 };
+        onDoublePick(u.posToVal(pointX(t), "x"));
       } else {
         setCursorAt(t);
         lastTap = { time: now, x: t.clientX };
@@ -334,7 +364,7 @@ function lowerBound(times, target) {
  * @param container  element ที่ใส่กราฟ
  * @param times      Float64Array epoch seconds
  * @param seriesList [{ label, color, values (Array, null = ว่าง), show, stepped, dash, width }]
- * @param handlers   { onRange(min, max), onCursor(index | null), onSelect(range | null), formatDuration(seconds) }
+ * @param handlers   { onRange(min, max), onCursor(index | null), onSelect(range | null), formatDuration(seconds), onDoublePick(time) }
  * @param markerLayers [{ shape, color, y, show, drawWhen, raw (ค่าดิบ) | times (เวลาที่วาด) }]
  * @param notes      { strokes: [] } โน้ตที่วาดบนกราฟ (main.js เป็นเจ้าของ — อยู่รอดตอนสร้างกราฟใหม่)
  */
@@ -393,6 +423,7 @@ export function createChart(container, times, seriesList, handlers, markerLayers
     legend: { show: false },            // ใช้ตารางของเราเองแทน
     cursor: {
       drag: { x: true, y: false, setScale: false }, // ลากซ้าย = เลือกช่วง ไม่ zoom
+      bind: { dblclick: () => null },               // ดับเบิลคลิกไม่ reset zoom (ใช้เปิด Real data แทน)
       points: { size: 6 },
     },
     scales: { x: { time: true }, y: { range: Y_AXIS_RANGE } },
@@ -413,7 +444,9 @@ export function createChart(container, times, seriesList, handlers, markerLayers
       { ...axisStyle },
       { ...axisStyle, size: 56, values: (u, ticks) => ticks.map((v) => `${v}°C`) },
     ],
-    plugins: [interactionPlugin(times, () => clearSelection())],
+    plugins: [interactionPlugin(times, () => clearSelection(), (time) => {
+      if (!drawSettings.mode) handlers.onDoublePick?.(time); // โหมดวาดโน้ต: ไม่เปิด
+    })],
     hooks: {
       setSelect: [(u) => {
         if (u.select.width <= 0) return;
@@ -458,6 +491,7 @@ export function createChart(container, times, seriesList, handlers, markerLayers
     getRange: () => [plot.scales.x.min, plot.scales.x.max],
     getSelection: () => (selection ? { ...selection } : null),
     refreshLabels: () => updateSpanLabel(plot), // เรียกหลังเปลี่ยนภาษา
+    redrawAxes: () => plot.redraw(false, true), // เรียกหลังเปลี่ยน time zone (ตัวเลขเวลาบนแกน X)
     // ---- โน้ต ----
     setDrawMode: (mode) => { drawSettings.mode = mode; annotator?.setMode(mode); },   // null | "pen" | "eraser"
     setDrawColor: (color) => { drawSettings.color = color; annotator?.setColor(color); },

@@ -167,7 +167,7 @@ circle_num(s, 0.8, 1.2, 0.9, "°C", fill=CORAL, size=22)
 text(s, 0.8, 2.4, 11.5, 1.2, "AHTH Graph Generator", size=54, bold=True, color=WHITE)
 text(s, 0.8, 3.55, 11.5, 0.7, "คู่มือการพัฒนาและดูแลระบบ — ทำทีละขั้น", size=26, color=CODE_KEY)
 text(s, 0.8, 4.5, 11.5, 1.0, ["เว็บแสดงกราฟอุณหภูมิจากไฟล์ log ของตู้เย็น",
-                             "Release 1.7 · https://ahth-graph-generator.github.io"], size=16, color=RGBColor(0xB8, 0xC4, 0xD4),
+                             "Release 1.9 · https://ahth-graph-generator.github.io"], size=16, color=RGBColor(0xB8, 0xC4, 0xD4),
      line_spacing=1.3)
 notes(s, "แนะนำตัวโปรเจกต์: เว็บที่อ่านไฟล์ log ของตู้เย็นแล้วแสดงกราฟอุณหภูมิและสถานะชิ้นส่วน "
          "สไลด์ชุดนี้สอนว่าโปรแกรมทำงานอย่างไร และทำงานประจำ (เพิ่มรายการ ทดสอบ release) ทีละขั้น "

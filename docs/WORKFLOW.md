@@ -122,7 +122,7 @@ flowchart TD
 ```js
 {
   ini, metadataMissing,
-  times,                 // Float64Array — epoch seconds (เวลาตามที่เขียนในไฟล์ ไม่แปลง timezone)
+  times,                 // Float64Array — epoch seconds (เวลาตามที่เขียนในไฟล์ = เวลาไทย; แปลงเป็น time zone ที่เลือกตอนแสดงผลเท่านั้น)
   series: [{ key, values /* Float32Array °C */, allZero }],   // เซนเซอร์อุณหภูมิ
   status: { [key]: Float32Array },   // ค่าของ STATUS_ITEMS ที่มีในไฟล์ (+ "<heater>State")
   softwareChanges: [{ index, time, label }],
@@ -178,13 +178,15 @@ sequenceDiagram
 | ลากคลิกขวา | `interactionPlugin` (mousedown button 2) | เลื่อนกราฟซ้าย/ขวา (pan) |
 | ลากคลิกซ้าย | uPlot drag (`setScale: false`) + hook `setSelect` | เลือกช่วง + ป้าย `\|◀ 30 min ▶\|` |
 | คลิกซ้ายเฉยๆ | `interactionPlugin` | ยกเลิกช่วงที่เลือก |
-| ดับเบิลคลิก | uPlot | ดูทั้งหมด |
-| จอสัมผัส: แตะ / ลากนิ้ว / จีบ 2 นิ้ว / ลาก 2 นิ้ว / แตะ 2 ครั้ง | `touchSupport()` | เคอร์เซอร์ / เลือกช่วง / zoom / pan / ดูทั้งหมด |
+| ดับเบิลคลิก | `interactionPlugin` (dblclick) → `handlers.onDoublePick(time)` | เปิด Real data + เลื่อนไปแถว ณ จุดนั้น (`scrollToFocus()`) |
+| จอสัมผัส: แตะ / ลากนิ้ว / จีบ 2 นิ้ว / ลาก 2 นิ้ว / แตะ 2 ครั้ง | `touchSupport()` | เคอร์เซอร์ / เลือกช่วง / zoom / pan / Real data ณ จุดนั้น |
 | ปากกา: ลากทิศไหนก็ได้ / ลอยเหนือจอ | `touchSupport()` | เลือกช่วง / เคอร์เซอร์ตามปลายปากกา |
-| ปุ่ม 📋 Real data | `openRawData()` ใน `rawdata.js` → Worker `type: "extract"` | ตารางค่าดิบจากไฟล์ของช่วงที่เลือก |
+| ปุ่ม 📋 Real data | `openRawData()` ใน `rawdata.js` → Worker `type: "extract"` | ตารางค่าดิบจากไฟล์ของช่วงที่เลือก — ☆ เลือกเทียบ, คลิกชื่อคอลัมน์ = เรียง/กรอง (`recomputeOrder()`) |
+| ช่อง Time zone | `initTimeZone()` / `refreshTimes()` ใน `main.js` → `setDisplayTimeZone()` | เวลาที่แสดงทุกที่ผ่าน `formatDateTime()` / `toDisplayEpoch()` (`logformat.js`) |
 | โหมดวาดโน้ต (ปุ่ม ✏️) | `createAnnotator()` ใน `annotate.js` | วาด/ลบโน้ต — เก็บใน `loaded.notes` |
 
 - `updateStats()` ใช้ `indexRange()` (binary search) หา index แล้ว `computeStats()` (ข้าม `NaN`)
+- Power: `counterResets()` หาแถวที่ตัวนับ ProTestTimer reset (ค่าลดลง ไม่นับการนับเกินค่าเต็ม) → `item.reset` ใช้วาดเส้นและข้อความ RESET/ON
 - ข้อความในตารางจัดรูปตาม `meta.display` ใน `cursorText()` / `statsText()` เช่น ON/OFF, ERROR, Close/Opening/Open, `ON(30%)`
 
 ---

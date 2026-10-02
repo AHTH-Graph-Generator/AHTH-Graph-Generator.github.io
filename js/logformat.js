@@ -118,6 +118,11 @@ function sensorError(sensorKey, name) {
   };
 }
 
+// ตัวนับของ Power (ProTestTimer): นับขึ้นเรื่อยๆ ตั้งแต่เปิดเครื่อง → ค่าลดลงจากแถวก่อน = reset (ไฟดับแล้วเปิดใหม่)
+// ยกเว้นนับจนเต็มค่าที่เก็บได้แล้ววนกลับ (นับเกิน ไม่ใช่ reset) — ค่าเต็มเลือกตัวแรกที่ ≥ ค่าสูงสุดในไฟล์
+// tolerance = ยอมให้ค่าเปลี่ยนได้ rate × ระยะเวลา × slack + 1 (rate = ความเร็วการนับปกติของไฟล์ ต่อวินาที)
+export const POWER_COUNTER = { max: [65535, 4294967295], slack: 2 };
+
 // Damper (Cabin[0].flap): 0 = ปิดสุด, 1850 = เปิดสุด
 export const DAMPER_OPEN = 1850;
 // color: "axis" = สีเดียวกับตัวเลขแกนกราฟ (--muted) เปลี่ยนตามโหมดสว่าง/มืดเอง (ดู resolveColor ใน main.js)
@@ -130,9 +135,10 @@ export const STATUS_ITEMS = [
     th: "Door open count", en: "Door open count", display: "raw", noAvg: true },
   { key: "doorCloseCount", column: "doorsClosedTimer", group: "system", kind: "value",
     th: "Door close count", en: "Door close count", display: "raw", noAvg: true },
-  // Power: ProTestTimer = 0 → Y = 55 (OFF), ค่าอื่น → Y = 57 (ON)
+  // Power: ProTestTimer เป็นตัวนับ — แถวที่ reset (ไฟดับแล้วเปิดใหม่) → Y = 55, นอกนั้น → Y = 57
+  // (หาจุด reset ด้วย counterResets() ใน main.js — ดู POWER_COUNTER)
   { key: "power", column: "ProTestTimer", group: "other", kind: "line", color: "axis",
-    th: "Power", en: "Power", yWhenZero: 55, yOtherwise: 57, display: "onOff" },
+    th: "Power", en: "Power", yWhenZero: 55, yOtherwise: 57, display: "reset", counterReset: true },
   // Compressor: Cooler.compressor 0–180 (×30 = ค่าจริง) → เส้นขั้นบันไดจาก Y = -45 (0) ถึง Y = -30 (180)
   { key: "compressor", column: "Cooler.compressor", group: "component", kind: "line", color: "rgb(255, 0, 127)",
     th: "Compressor", en: "Compressor", rawRange: [0, 180], yRange: [-45, -30], scale: 30, display: "scaled" },
@@ -297,7 +303,8 @@ export function dateOrderHint(parts) {
 export const defaultDateOrder = (parts) => (parts && parts.ampm ? "MDY" : "DMY");
 
 // แปลงเป็น epoch seconds โดยถือว่าเวลาในไฟล์เป็น "UTC" เสมอ
-// (ไม่มี timezone ในไฟล์ → แสดงผลด้วย UTC ก็จะได้เวลาตรงตามที่เขียนในไฟล์ ไม่ถูกแปลง)
+// (ไม่มี timezone ในไฟล์ → แสดงผลด้วย UTC ก็จะได้เวลาตรงตามที่เขียนในไฟล์ — แปลงเป็น time zone อื่นตอนแสดงผลเท่านั้น
+//  ดู toDisplayEpoch)
 // คืน NaN ถ้าค่าไม่ถูกต้อง
 export function partsToEpoch(parts, order) {
   if (!parts) return NaN;
@@ -325,21 +332,95 @@ export function partsToEpoch(parts, order) {
 const INT_RE = /^\s*-?\d+\s*$/;
 export const parseIntStrict = (text) => (INT_RE.test(text) ? parseInt(text, 10) : NaN);
 
-// ---------- แสดงผลเวลา (ใช้ UTC เพื่อให้ตรงกับที่เขียนในไฟล์) ----------
+// ---------- แสดงผลเวลา + time zone ----------
+// ค่าเวลาในโปรแกรม (epoch ที่ได้จาก partsToEpoch) = "เวลาตามที่เขียนในไฟล์" เก็บแบบ UTC
+// เวลาในไฟล์เป็นเวลาประเทศไทย (FILE_TIME_ZONE) → ผู้ใช้เลือกแสดงเป็น time zone อื่นได้
+// ข้อมูล/ช่วงที่เลือก/โน้ต ยังผูกกับ epoch เดิม — เปลี่ยนแค่ข้อความเวลาที่แสดง
+export const FILE_TIME_ZONE = "Asia/Bangkok";
+let displayTimeZone = FILE_TIME_ZONE;
+
+export const getDisplayTimeZone = () => displayTimeZone;
+export function setDisplayTimeZone(tz) {
+  displayTimeZone = tz;
+  offsetCache.clear();
+}
+
+// รายชื่อ time zone ทั้งหมดที่ browser รู้จัก (browser เก่าไม่มี supportedValuesOf → ใช้รายการสั้น)
+export function listTimeZones() {
+  let zones = [];
+  try { zones = Intl.supportedValuesOf("timeZone"); } catch { /* browser เก่า */ }
+  if (!zones.length) {
+    zones = ["Asia/Bangkok", "Asia/Tokyo", "Asia/Shanghai", "Asia/Singapore", "Asia/Kolkata", "Asia/Dubai",
+      "Europe/Istanbul", "Europe/London", "Europe/Berlin", "America/New_York", "America/Chicago",
+      "America/Los_Angeles", "Australia/Sydney"];
+  }
+  if (!zones.includes("UTC")) zones = [...zones, "UTC"];
+  if (!zones.includes(FILE_TIME_ZONE)) zones = [FILE_TIME_ZONE, ...zones];
+  return zones;
+}
+
+// offset (วินาที) ของ time zone ณ เวลาจริง realSec — cache ทีละ 15 นาที (เปลี่ยนเวลา DST เกิดที่ขอบ 15 นาทีเสมอ)
+const offsetCache = new Map();
+const formatters = new Map();
+export function zoneOffset(tz, realSec) {
+  if (tz === "UTC" || tz === "Etc/UTC") return 0;
+  const bucket = Math.floor(realSec / 900);
+  const key = `${tz}|${bucket}`;
+  let off = offsetCache.get(key);
+  if (off !== undefined) return off;
+  let fmt = formatters.get(tz);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23",
+      year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" });
+    formatters.set(tz, fmt);
+  }
+  const at = bucket * 900;
+  const p = {};
+  for (const { type, value } of fmt.formatToParts(new Date(at * 1000))) p[type] = +value;
+  off = Date.UTC(p.year, p.month - 1, p.day, p.hour % 24, p.minute, p.second) / 1000 - at;
+  if (offsetCache.size > 20000) offsetCache.clear();
+  offsetCache.set(key, off);
+  return off;
+}
+
+// เวลาในไฟล์ → เวลาที่แสดงใน time zone ที่เลือก (ยังเป็น epoch แบบ UTC-wall ใช้ getUTC* อ่านได้เลย)
+export function toDisplayEpoch(fileSec) {
+  if (displayTimeZone === FILE_TIME_ZONE) return fileSec;
+  const real = fileSec - zoneOffset(FILE_TIME_ZONE, fileSec);
+  return real + zoneOffset(displayTimeZone, real);
+}
+
+// กลับทาง: เวลาที่แสดง → เวลาในไฟล์ (สำหรับช่องเลือกช่วงเวลา)
+export function fromDisplayEpoch(wallSec) {
+  if (displayTimeZone === FILE_TIME_ZONE) return wallSec;
+  let real = wallSec - zoneOffset(displayTimeZone, wallSec);
+  real = wallSec - zoneOffset(displayTimeZone, real); // รอบ 2 แก้ช่วงรอยต่อ DST
+  return real + zoneOffset(FILE_TIME_ZONE, real);
+}
+
+// ป้าย offset เช่น "UTC+07:00" ของ time zone ณ เวลาในไฟล์ fileSec
+export function zoneOffsetLabel(tz, fileSec = Date.now() / 1000) {
+  const real = fileSec - zoneOffset(FILE_TIME_ZONE, fileSec);
+  const off = zoneOffset(tz, real);
+  const a = Math.abs(off);
+  return `UTC${off < 0 ? "−" : "+"}${pad(Math.floor(a / 3600))}:${pad(Math.floor((a % 3600) / 60))}`;
+}
+
 const pad = (n) => String(n).padStart(2, "0");
 
-export function formatDateTime(epochSec) {
-  const d = new Date(epochSec * 1000);
+// ข้อความเวลา YYYY-MM-DD HH:mm:ss ใน time zone ที่เลือก
+export function formatDateTime(fileSec) {
+  const d = new Date(toDisplayEpoch(fileSec) * 1000);
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
          `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
 }
 
 // ค่าสำหรับ <input type="datetime-local" step="1">
-export const toInputValue = (epochSec) => formatDateTime(epochSec).replace(" ", "T");
+export const toInputValue = (fileSec) => formatDateTime(fileSec).replace(" ", "T");
 
-// อ่านค่าจาก <input type="datetime-local"> กลับเป็น epoch seconds (NaN ถ้าว่าง/ผิด)
+// อ่านค่าจาก <input type="datetime-local"> (เวลาใน time zone ที่เลือก) กลับเป็นเวลาในไฟล์ (NaN ถ้าว่าง/ผิด)
 export function fromInputValue(value) {
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/.exec(value);
   if (!m) return NaN;
-  return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)) / 1000;
+  return fromDisplayEpoch(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)) / 1000);
 }

@@ -2,15 +2,16 @@
 // main.js — จุดเริ่มต้นของหน้าเว็บ ผูก UI กับ parser / chart / stats
 // ============================================================
 
-import { SENSORS, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN, VALVE_POSITIONS, DAMPER_OPEN, HEATER_STATE, formatWorkMode, formatDateTime, toInputValue, fromInputValue } from "./logformat.js";
+import { SENSORS, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN, VALVE_POSITIONS, DAMPER_OPEN, HEATER_STATE, POWER_COUNTER, formatWorkMode, formatDateTime, toInputValue, fromInputValue,
+  FILE_TIME_ZONE, listTimeZones, setDisplayTimeZone, getDisplayTimeZone, zoneOffsetLabel } from "./logformat.js";
 import { indexRange, computeStats } from "./stats.js";
 import { createChart, toPlotValues } from "./chart.js";
 import { t, getLang, initLanguage, onLanguageChange } from "./i18n.js";
 import { initTheme, onThemeChange } from "./theme.js";
-import { openRawData, initRawData } from "./rawdata.js";
+import { openRawData, initRawData, refreshRawTimes } from "./rawdata.js";
 
 // เวอร์ชันที่แสดงบนหัวเว็บ — เปลี่ยนตรงนี้ที่เดียวทุกครั้งที่ release
-const APP_VERSION = "1.7";
+const APP_VERSION = "1.9";
 
 const SAMPLE_URL = "samples/sample.log";
 
@@ -56,6 +57,8 @@ const MSG = {
   colMax:         { th: "Max", en: "Max" },
   colAvg:         { th: "เฉลี่ย", en: "Average" },
   scopeView:      { th: "Min / Max / เฉลี่ย ของช่วงที่แสดงบนกราฟ: {from} → {to} (°C)", en: "Min / Max / Average of the visible range: {from} → {to} (°C)" },
+  fileZone:       { th: "เวลาในไฟล์", en: "file time" },
+  tzNotFound:     { th: "ไม่พบ time zone นี้", en: "No matching time zone" },
   scopeSelection: { th: "Min / Max / เฉลี่ย ของช่วงที่เลือก: {from} → {to} ({dur}) (°C)", en: "Min / Max / Average of the selected range: {from} → {to} ({dur}) (°C)" },
 };
 
@@ -91,7 +94,7 @@ const el = {
   progress: $("progress"), progressBar: $("progress-bar"), progressText: $("progress-text"),
   message: $("message"), result: $("result"), fileInfo: $("file-info"),
   rangeStart: $("range-start"), rangeEnd: $("range-end"),
-  rangeApply: $("range-apply"), zoomReset: $("zoom-reset"),
+  rangeApply: $("range-apply"), timeZone: $("time-zone"), zoomReset: $("zoom-reset"),
   chart: $("chart"), cursorTime: $("cursor-time"),
   cursorSoftware: $("cursor-software"), cursorWorkMode: $("cursor-workmode"),
   statsScope: $("stats-scope"), statsScopeText: $("stats-scope-text"), clearSelection: $("clear-selection"),
@@ -225,6 +228,7 @@ function onParsed(fileName, result, notes) {
     await nextTask();
     if (token !== loadToken) return;
     el.result.hidden = false;
+    buildTimeZoneList();
     renderFileInfo();
     renderStatsTable();
     await nextTask();
@@ -260,6 +264,11 @@ function buildItems(result) {
     const raw = result.status[meta.key];
     if (!raw) return [];
     if (meta.heater) return [buildHeaterItem(meta, raw, result.status[`${meta.key}State`], result.sampling)];
+    if (meta.counterReset) {
+      const reset = counterResets(result.times, raw);
+      return [{ meta, kind: "line", raw, reset, allZero: false, absent: false, show: !meta.defaultOff,
+        values: toStepValues(reset, { yWhenZero: meta.yOtherwise, yOtherwise: meta.yWhenZero }) }];
+    }
     // ไม่มีชิ้นส่วนนี้ในตู้ (เช่นไม่มี Ice maker / Refrigerator Evap / พัดลม 0 ทั้งไฟล์) → ไม่เลือกเป็นค่าเริ่มต้น
     const allZero = !!meta.allZeroMeansAbsent && isAllZero(raw);
     const absent = allZero
@@ -272,6 +281,53 @@ function buildItems(result) {
     }];
   });
   return [...sensors, ...statuses];
+}
+
+// ---------- Power: หาแถวที่ตัวนับ reset ----------
+// ตัวนับนับขึ้น: ค่าลดลงจากแถวก่อน = reset (ไฟดับแล้วเปิดใหม่ — sampling ห่างก็ยังเห็น แม้ไม่เจอค่า 0)
+//   ยกเว้นแถวก่อนอยู่ใกล้ค่าเต็ม (65535 …) จนนับเกินแล้ววนกลับได้ในช่วงนั้น = นับเกิน ไม่ใช่ reset
+//   ค่า 0 = ยังไม่เริ่มนับหลัง reset → ถือเป็น reset ด้วย
+// ตัวนับนับถอยหลัง (ไฟล์บางรุ่น ค่าลดทีละ 1 ต่อวินาทีเป็นปกติ): reset = ค่าลดลงเร็วกว่าการนับปกติมาก
+// คืน Float32Array: 1 = reset, 0 = ปกติ, NaN = ไม่มีค่า
+function counterResets(times, raw) {
+  const n = raw.length;
+  const reset = new Float32Array(n).fill(NaN);
+  // สำรวจทั้งไฟล์: ทิศการนับ, ความเร็วการนับปกติ (median ของค่าที่เปลี่ยน / วินาที), ค่าสูงสุด
+  const upRates = [], downRates = [];
+  let fileMax = 0, prev = NaN, prevT = NaN;
+  for (let i = 0; i < n; i++) {
+    const v = raw[i];
+    if (Number.isNaN(v)) continue;
+    if (v > fileMax) fileMax = v;
+    const dt = times[i] - prevT;
+    if (dt > 0) {
+      if (v > prev) upRates.push((v - prev) / dt);
+      else if (v < prev) downRates.push((prev - v) / dt);
+    }
+    prev = v; prevT = times[i];
+  }
+  const counting = upRates.length >= downRates.length ? 1 : -1;
+  const median = (a) => (a.length ? a.sort((x, y) => x - y)[a.length >> 1] : 0);
+  const rate = median(counting > 0 ? upRates : downRates);
+  const max = POWER_COUNTER.max.find((m) => m >= fileMax) ?? fileMax;
+  const allowance = (dt) => rate * Math.max(dt, 1) * POWER_COUNTER.slack + 1;
+
+  prev = NaN; prevT = NaN;
+  for (let i = 0; i < n; i++) {
+    const v = raw[i];
+    if (Number.isNaN(v)) continue;
+    const dt = times[i] - prevT;
+    let isReset = false;
+    if (counting > 0) {
+      if (v === 0) isReset = true;
+      else if (v < prev) isReset = prev + allowance(dt) < max; // ใกล้ค่าเต็ม = นับเกินแล้ววนกลับ
+    } else if (v < prev) {
+      isReset = prev - v > allowance(dt);
+    }
+    reset[i] = isReset ? 1 : 0;
+    prev = v; prevT = times[i];
+  }
+  return reset;
 }
 
 // ---------- Heater ----------
@@ -414,7 +470,8 @@ function buildChart() {
     }
   }
   chart = createChart(el.chart, result.times, seriesList,
-    { onRange: updateRange, onCursor: updateCursor, onSelect: updateStats, formatDuration: fmtDuration },
+    { onRange: updateRange, onCursor: updateCursor, onSelect: updateStats, formatDuration: fmtDuration,
+      onDoublePick: showRawData },
     markerLayers, loaded.notes);
   // สร้างกราฟใหม่ (เปลี่ยนโหมดสว่าง/มืด) → คงโหมดวาดและสีเดิม
   chart.setDrawColor(drawState.color);
@@ -433,13 +490,15 @@ function usedColumnNames() {
   return new Set(names.map((n) => n.replace(/\s+/g, "").toLowerCase()));
 }
 
-function showRawData() {
+// focusTime (ดับเบิลคลิก / แตะ 2 ครั้งบนกราฟ) = เลื่อนไปและไฮไลต์แถวที่ใกล้เวลานั้นที่สุด
+function showRawData(focusTime = null) {
   if (!loaded || !chart) return;
   const selection = chart.getSelection();
   const [minTime, maxTime] = selection ? [selection.min, selection.max] : chart.getRange();
   openRawData({
     file: loaded.file, fileName: loaded.fileName, dateOrder: loaded.result.dateOrder,
     minTime, maxTime, usedColumns: usedColumnNames(),
+    focusTime: typeof focusTime === "number" && Number.isFinite(focusTime) ? focusTime : null,
   });
 }
 
@@ -735,6 +794,7 @@ function cursorText(item, idx) {
   const v = item.raw[idx];
   if (Number.isNaN(v)) return "–";
   if (display === "onOff") return v === 0 ? "OFF" : "ON";
+  if (display === "reset") return item.reset[idx] === 1 ? "RESET" : "ON"; // Power
   if (display === "scaled") return fmtRaw(v * item.meta.scale);
   if (display === "error") return v !== 0 ? "ERROR" : "–";
   if (display === "valve") return VALVE_POSITIONS[v] ?? fmtRaw(v);
@@ -794,6 +854,135 @@ function applyRangeInputs() {
   chart.setRange(min, max);
 }
 
+// ---------- Time zone ที่ใช้แสดงเวลา ----------
+// เวลาในไฟล์ = เวลาไทย (FILE_TIME_ZONE) — เลือกแล้วเวลาบนกราฟ / ตาราง / ช่องเลือกช่วง / Real data เปลี่ยนตาม
+// ช่องเลือกเป็นช่องพิมพ์ค้นหา (ชื่อเมือง / "+07" / "UTC+07:00") + รายการที่กรองแล้ว, ปุ่ม ↺ กลับเป็นเวลาไทย
+// จำค่าที่เลือกไว้ใน localStorage "timeZone" (ใช้ได้เฉพาะเครื่องนี้)
+const TZ_STORAGE_KEY = "timeZone";
+const tzState = { zones: [], matches: [], active: -1 };
+
+// รายการทั้งหมด เรียงตาม offset (ณ ช่วงเวลาของไฟล์ที่เปิด — DST)
+function buildTimeZoneList() {
+  const ref = loaded ? loaded.result.times[0] : undefined;
+  tzState.zones = listTimeZones().map((tz) => {
+    const offset = zoneOffsetLabel(tz, ref);
+    const sign = offset[3] === "−" ? -1 : 1;
+    const label = `(${offset}) ${tz}${tz === FILE_TIME_ZONE ? ` — ${t(MSG.fileZone)}` : ""}`;
+    // คำค้น: ชื่อ (ขีดล่าง = ช่องว่าง) + offset ทั้งแบบ "+07:00" และ "+7"
+    const search = `${tz} ${tz.replace(/_/g, " ")} ${offset} ${offset.replace("−", "-")} ${offset.slice(3).replace("−", "-").replace(/^([+-])0?(\d+):00$/, "$1$2")}`.toLowerCase();
+    return { tz, label, search, minutes: sign * (+offset.slice(4, 6) * 60 + +offset.slice(7, 9)) };
+  }).sort((a, b) => a.minutes - b.minutes || a.tz.localeCompare(b.tz));
+  showCurrentTimeZone();
+}
+
+const currentZoneLabel = () => tzState.zones.find((z) => z.tz === getDisplayTimeZone())?.label ?? getDisplayTimeZone();
+
+function showCurrentTimeZone() {
+  if (!el.timeZone) return; // index.html เก่าจากแคช (ยังไม่มีช่อง Time zone) — ไม่ให้ทั้งหน้าพัง
+  el.timeZone.value = currentZoneLabel();
+  $("tz-reset").disabled = getDisplayTimeZone() === FILE_TIME_ZONE;
+}
+
+// แสดงรายการที่ตรงกับคำค้น (ทุกคำต้องเจอ)
+function renderTimeZoneList(query) {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  tzState.matches = tzState.zones.filter((z) => words.every((w) => z.search.includes(w)));
+  tzState.active = Math.max(0, tzState.matches.findIndex((z) => z.tz === getDisplayTimeZone()));
+  const list = $("tz-list");
+  if (!tzState.matches.length) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = t(MSG.tzNotFound);
+    list.replaceChildren(li);
+  } else {
+    list.replaceChildren(...tzState.matches.map((z, i) => {
+      const li = document.createElement("li");
+      li.role = "option";
+      li.dataset.index = i;
+      li.textContent = z.label;
+      li.classList.toggle("current", z.tz === getDisplayTimeZone());
+      return li;
+    }));
+  }
+  list.hidden = false;
+  el.timeZone.setAttribute("aria-expanded", "true");
+  highlightTimeZone();
+}
+
+function highlightTimeZone() {
+  const items = $("tz-list").querySelectorAll("li[data-index]");
+  items.forEach((li, i) => li.classList.toggle("active", i === tzState.active));
+  items[tzState.active]?.scrollIntoView({ block: "nearest" });
+}
+
+function closeTimeZoneList() {
+  $("tz-list").hidden = true;
+  el.timeZone.setAttribute("aria-expanded", "false");
+}
+
+function chooseTimeZone(tz) {
+  closeTimeZoneList();
+  if (tz !== getDisplayTimeZone()) {
+    setDisplayTimeZone(tz);
+    try { localStorage.setItem(TZ_STORAGE_KEY, tz); } catch { /* ไม่มี storage */ }
+    refreshTimes();
+  }
+  showCurrentTimeZone();
+  el.timeZone.blur();
+}
+
+function initTimeZone() {
+  let saved = null;
+  try { saved = localStorage.getItem(TZ_STORAGE_KEY); } catch { /* ไม่มี storage */ }
+  if (saved && listTimeZones().includes(saved)) setDisplayTimeZone(saved);
+  buildTimeZoneList();
+  const input = el.timeZone;
+  if (!input) return;
+  // กดที่ช่อง → เลือกข้อความทั้งหมด (พิมพ์ทับได้เลย) + แสดงทุกรายการ
+  input.addEventListener("focus", () => { input.select(); renderTimeZoneList(""); });
+  input.addEventListener("click", () => { if ($("tz-list").hidden) renderTimeZoneList(""); });
+  input.addEventListener("input", () => renderTimeZoneList(input.value));
+  input.addEventListener("keydown", (e) => {
+    const n = tzState.matches.length;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if ($("tz-list").hidden) { renderTimeZoneList(""); return; }
+      if (n) tzState.active = (tzState.active + (e.key === "ArrowDown" ? 1 : -1) + n) % n;
+      highlightTimeZone();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (n) chooseTimeZone(tzState.matches[tzState.active].tz);
+    } else if (e.key === "Escape") {
+      closeTimeZoneList();
+      showCurrentTimeZone();
+      input.blur();
+    }
+  });
+  // ออกจากช่องโดยไม่เลือก → กลับเป็นค่าเดิม
+  input.addEventListener("blur", () => setTimeout(() => {
+    if (document.activeElement === input) return;
+    closeTimeZoneList();
+    showCurrentTimeZone();
+  }, 150));
+  // pointerdown + preventDefault: ไม่ให้ช่องเสีย focus ก่อนเลือก
+  $("tz-list").addEventListener("pointerdown", (e) => {
+    const li = e.target.closest("li[data-index]");
+    e.preventDefault();
+    if (li) chooseTimeZone(tzState.matches[+li.dataset.index].tz);
+  });
+  $("tz-reset").addEventListener("click", () => chooseTimeZone(FILE_TIME_ZONE));
+}
+
+// เปลี่ยน time zone → เขียนข้อความเวลาทั้งหมดใหม่ (ข้อมูล / ช่วงที่เลือก / โน้ต ผูกกับเวลาในไฟล์ ไม่ต้องเปลี่ยน)
+function refreshTimes() {
+  refreshRawTimes();
+  if (!loaded || !chart) return;
+  renderFileInfo();
+  chart.redrawAxes();
+  updateRange(...chart.getRange()); // ช่องเลือกช่วง + ข้อความช่วงใต้กราฟ
+  updateCursor(null);
+}
+
 // ---------- ผูก event ----------
 function bindEvents() {
   el.fileInput.addEventListener("change", () => {
@@ -842,13 +1031,14 @@ function bindEvents() {
     setDrawMode("pen");
   }));
   $("save-png").addEventListener("click", saveChartImage);
-  $("raw-open").addEventListener("click", showRawData);
+  $("raw-open").addEventListener("click", () => showRawData());
   initRawData();
   renderDrawToolbar();
 
   // เปลี่ยนภาษา → วาดข้อความที่สร้างด้วย JS ใหม่
   onLanguageChange(() => {
     renderMessage();
+    buildTimeZoneList();
     if (!loaded) return;
     renderFileInfo();
     renderStatsTable();
@@ -868,6 +1058,7 @@ function bindEvents() {
 
 initLanguage();
 initTheme();
+initTimeZone();
 bindEvents();
 
 // ---------- หัวเว็บ / ท้ายเว็บ ----------

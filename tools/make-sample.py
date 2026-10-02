@@ -123,6 +123,17 @@ def pro_test_timer(sec):
     return 0
 
 
+# Power (คอลัมน์ ProTestTimer): ตัวนับวินาทีตั้งแต่เปิดเครื่อง 16 บิต
+# เริ่มที่ 64000 → นับเกิน 65535 วนกลับ 0 ที่วินาที ~1536 (ไม่ใช่ reset), ไฟดับ/เปิดใหม่ที่วินาที 6000 (reset → นับจาก 0)
+POWER_START, POWER_RESET_AT = 64000, 6000
+
+
+def power_counter(sec):
+    if sec < POWER_RESET_AT:
+        return (POWER_START + sec) % 65536
+    return sec - POWER_RESET_AT
+
+
 # enHeaterAStates: 0–5 None, 6–16 Off, 17–25 On
 HEATER_NONE, HEATER_OFF, HEATER_ON = 1, 8, 24
 
@@ -177,7 +188,7 @@ def make_row(header, t, s, door_open, fz_err, sec):
     values["doorsClosed"] = "0" if door_open else "1"
     for name, value in zip(("Stock.No[2]", "Stock.No[1]", "Stock.No[0]", "Stock.Version", "Stock.Revision"), software_at(sec)):
         values[name] = str(value)
-    values["ProTestTimer"] = str(pro_test_timer(sec))
+    values["ProTestTimer"] = str(power_counter(sec))
     # Condenser Fan: ON (1–100) ทุกครั้งที่ Compressor ON
     values["Cooler.condenserFan"] = "70" if s["compressor"] else "0"
     # Valve: 0 Close (defrost/คอมหยุด), 1 R-Open / 2 F-Open สลับทุก 10 นาที, 3 All open ช่วงสั้นๆ

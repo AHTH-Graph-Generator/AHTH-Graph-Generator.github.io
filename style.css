@@ -130,6 +130,22 @@ main { padding: 20px 16px 40px; }
   border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
   min-width: 0;
 }
+/* Time zone: ช่องพิมพ์ค้นหา + รายการที่กรองแล้ว + ปุ่มกลับเป็นเวลาไทย */
+.tz-field { display: flex; flex-direction: column; font-size: 0.85rem; color: var(--muted); }
+.tz-row { display: flex; gap: 6px; }
+.tz-combo { position: relative; }
+.tz-combo input { width: 300px; max-width: 100%; }
+.tz-row .btn { white-space: nowrap; }
+.tz-list {
+  position: absolute; z-index: 20; left: 0; top: calc(100% + 2px); width: max(100%, 320px); max-height: 280px;
+  overflow-y: auto; margin: 0; padding: 4px 0; list-style: none; font-size: 0.9rem;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+}
+.tz-list li { padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+.tz-list li.active { background: color-mix(in srgb, var(--primary) 18%, var(--surface)); }
+.tz-list li.current { font-weight: 600; }
+.tz-list li.empty { color: var(--muted); cursor: default; }
 .range-buttons { display: flex; gap: 8px; }
 .hint {
   display: flex; flex-wrap: wrap; gap: 4px 16px;
@@ -227,11 +243,66 @@ body.modal-open { overflow: hidden; }
 .raw-table .sticky-1 { left: 0; }
 .raw-table .sticky-2 { left: 64px; text-align: left; border-right: 2px solid var(--border); }  /* 64px = LINE_COL_PX ใน rawdata.js */
 .raw-table tbody tr:hover td { background: var(--bg); }
+/* แถวที่ดับเบิลคลิกมาจากกราฟ */
+.raw-table tbody tr.focus td { background: color-mix(in srgb, rgb(255, 200, 0) 30%, var(--surface)); }
+.modal-box { position: relative; }
+/* หัวคอลัมน์: ☆ เลือกเทียบ + ชื่อ (คลิก = เมนูเรียง/กรอง) */
+.raw-table th.raw-th { cursor: pointer; text-align: left; padding-left: 4px; }
+.raw-table th.raw-th:hover { color: var(--text); }
+.raw-th-mark { color: var(--primary); }
+.raw-pick {
+  font: inherit; font-size: 13px; line-height: 1; padding: 0 3px; margin-right: 2px;
+  background: none; border: 0; color: var(--muted); cursor: pointer;
+}
+.raw-pick[aria-pressed="true"] { color: rgb(230, 160, 0); }
+/* คอลัมน์ที่เลือกเทียบ */
+.raw-table .picked { background: color-mix(in srgb, var(--primary) 10%, var(--surface)); }
+.raw-table th.picked { background: color-mix(in srgb, var(--primary) 18%, var(--bg)); color: var(--text); }
+.raw-table tbody tr:hover td.picked { background: color-mix(in srgb, var(--primary) 18%, var(--bg)); }
+.raw-compare, .raw-order { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.raw-picked { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.raw-chip {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 0.85rem;
+  padding: 2px 4px 2px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 15%, var(--surface)); border: 1px solid var(--primary);
+}
+.raw-chip button { font: inherit; font-size: 0.75rem; background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0 4px; }
+.raw-order { color: var(--primary); }
+/* เมนูเรียง/กรอง */
+.raw-menu {
+  position: absolute; z-index: 10; width: 260px; max-width: calc(100% - 16px);
+  display: flex; flex-direction: column; gap: 6px; padding: 10px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+}
+.raw-menu-title { font-weight: 600; font-size: 0.85rem; word-break: break-all; }
+.raw-menu > button {
+  font: inherit; font-size: 0.9rem; text-align: left; padding: 5px 8px; cursor: pointer;
+  color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+}
+.raw-menu > button:hover { border-color: var(--primary); }
+.raw-menu-filter { display: flex; flex-direction: column; gap: 3px; font-size: 0.85rem; color: var(--muted); }
+.raw-menu-filter input {
+  font: inherit; font-size: 0.9rem; padding: 5px 8px;
+  color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+}
+.raw-menu-filter input.invalid { border-color: var(--error-border); }
+.raw-menu-help { font-size: 0.75rem; }
+.raw-menu-actions { display: flex; gap: 6px; }
+.raw-menu-actions .btn { flex: 1; padding: 5px 8px; font-size: 0.85rem; }
+.raw-menu-actions .btn:disabled { opacity: 0.4; cursor: default; }
 @media (max-width: 640px) {
   .modal { padding: 0; }
   .modal-box { height: 100%; border-radius: 0; }
   .raw-controls input[type="search"] { min-width: 0; flex: 1 1 100%; }
   .raw-pager { margin-left: 0; }
+}
+
+/* หน้าตรวจปากกา (?pentest) */
+.pentest-panel {
+  position: fixed; left: 8px; bottom: 8px; z-index: 200; margin: 0; padding: 8px 10px;
+  font: 12px/1.4 Consolas, monospace; color: #fff; background: rgba(0, 0, 0, 0.8); border-radius: 6px;
+  pointer-events: none; max-width: 70vw;
 }
 
 /* ข้อความวิธีใช้: คอมแสดงวิธีใช้เมาส์, จอสัมผัส (ไม่มี hover) แสดงวิธีใช้นิ้ว */
@@ -310,12 +381,17 @@ body.modal-open { overflow: hidden; }
 .toggle-spacer { width: 40px; flex: none; } /* แทน checkbox + ภาพลักษณะ ในแถวที่ไม่มีในกราฟ */
 
 .footer { border-top: 1px solid var(--border); padding: 20px 0; color: var(--muted); font-size: 0.9rem; }
+.footer .container { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; }
 
 /* มือถือ */
 @media (max-width: 640px) {
   main { padding: 12px 16px 32px; }
   .file-info dd { white-space: normal; overflow-wrap: anywhere; } /* จอแคบ: ยอมตัดบรรทัดดีกว่าล้นจอ */
   .range-controls label { flex: 1 1 100%; }
+  .tz-field { flex: 1 1 100%; }
+  .tz-combo { flex: 1; min-width: 0; }
+  .tz-combo input { width: 100%; }
+  .tz-list { width: 100%; }
   .range-buttons { flex: 1 1 100%; }
   .range-buttons .btn { flex: 1; }
   .stats th, .stats td { padding: 6px 6px; }
