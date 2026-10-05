@@ -232,9 +232,13 @@ export const SOFTWARE_COLUMNS = {
 export const SOFTWARE_VR_DIGITS = 2;      // Version / Revision เติม 0 ข้างหน้าให้ครบ 2 หลัก
 export const SOFTWARE_NO_DIGITS = 4;      // เติม 0 ข้างหน้า Stock.No แต่ละตัวให้ครบ 4 หลัก
 
+const SOFTWARE_NO_ALL_ZERO = "0".repeat(10);
+
 export function formatSoftware(noParts, version, revision) {
-  const no = noParts.map((n) => String(n).padStart(SOFTWARE_NO_DIGITS, "0")).join("")
-    .replace(/^0+(?=\d)/, ""); // ตัด 0 ข้างหน้าของเลขรวม (เหลืออย่างน้อย 1 หลัก)
+  // Stock.No เป็น 0 ทั้งหมด (เช่น ESP32 บางเครื่องไม่ส่งค่านี้) → "0" 10 ตัว (ผู้ใช้กำหนด) เช่น 0000000000-V99R24
+  const no = noParts.every((n) => n === 0) ? SOFTWARE_NO_ALL_ZERO
+    : noParts.map((n) => String(n).padStart(SOFTWARE_NO_DIGITS, "0")).join("")
+      .replace(/^0+(?=\d)/, ""); // ตัด 0 ข้างหน้าของเลขรวม (เหลืออย่างน้อย 1 หลัก)
   // Version / Revision อย่างน้อย 2 หลักเสมอ: V0R5 → V00R05, V98R14 คงเดิม
   const two = (n) => String(n).padStart(SOFTWARE_VR_DIGITS, "0");
   return `${no}-V${two(version)}R${two(revision)}`;

@@ -34,10 +34,18 @@ flowchart LR
 
 | ไฟล์ | ทำงานที่ | หน้าที่ |
 |---|---|---|
-| `index.html` | หน้าเว็บ | โครงหน้า, โหลด uPlot + `js/main.js`, script เล็กใน `<head>` ตั้งโหมดสว่าง/มืดก่อนวาด |
+| `index.html` | หน้าเว็บ | หน้าแรก: การ์ดเลือก วิเคราะห์ไฟล์ Log / ติดตามสถานะ Data Logger, ลิงก์เก่าที่มี query (เช่น `/?pentest`) ส่งต่อไป `analyze.html` |
+| `analyze.html` | หน้าเว็บ | หน้าวิเคราะห์ไฟล์ Log: โครงหน้า, โหลด uPlot + `js/main.js`, script เล็กใน `<head>` ตั้งโหมดสว่าง/มืดก่อนวาด |
+| `js/site.js` | ทุกหน้า | `initSite()`: เวอร์ชัน (`APP_VERSION`), ภาษา, โหมดสว่าง/มืด, นาฬิกาท้ายเว็บ |
 | `style.css` | หน้าเว็บ | หน้าตา, โหมดมืด (`:root[data-theme="dark"]`), layout จอแนวนอนกว้าง |
-| `js/main.js` | หน้าเว็บ | จุดเริ่มต้น: ผูก UI, เรียก worker, สร้างรายการ/ตาราง/กราฟ, อัปเดตค่า |
+| `js/main.js` | หน้า analyze | จุดเริ่มต้น: ผูก UI, เรียก worker, สร้างรายการ/ตาราง/กราฟ, อัปเดตค่า |
 | `js/parser.worker.js` | Web Worker | อ่านไฟล์ทีละแถว, หาคอลัมน์จาก header, ตรวจแถวเสีย, เก็บค่าลง typed array |
+| `monitor.html` + `js/monitor.js` | หน้าเว็บ | การ์ด Data Logger: Online/Offline, อุณหภูมิจาก frame ล่าสุด, ค้นหา/กรอง, ปรับปรุงทุก 1 นาที |
+| `js/live.js` | หน้า analyze | `?device=<ชื่อ>`: โหลด CSV ของช่วงวันผ่าน `monitor-api.js` → `loadFile(…, { keepView })` ปรับปรุงอัตโนมัติ |
+| `js/auth.js` + `js/login-ui.js` | หน้าเว็บ | login ด้วยรหัสทางอีเมล, ขอสิทธิ์, รออนุมัติ, แถบผู้ใช้ — ทุกหน้าที่ต้อง login ใช้ `showAuthGate()` ตัวเดียวกัน |
+| `admin.html` + `js/admin.js` | หน้าเว็บ | จัดการผู้ใช้ (แอดมิน): อนุมัติ / ปฏิเสธ / ถอนสิทธิ์ / ลบ |
+| `js/monitor-api.js` + `js/config.js` | หน้าเว็บ | ดึงข้อมูลจาก Worker (หรือข้อมูลจำลองเมื่อ `WORKER_URL = null`), จำไฟล์ตาม `modified` |
+| `js/espdecoder.js` | Worker | ถอด CSV ดิบจาก ESP32 (`timestamp,raw_hex`, frame 228 byte → 187 ฟิลด์) — `espAdapter()` ใน worker เรียกใช้ แล้วส่งต่อเป็นแถวแบบ log |
 | `js/sources.js` | Web Worker | แปลง .log/.txt/.csv/.xlsx เป็น "แถว" (array ของข้อความ) — xlsx อ่านเองไม่ใช้ library |
 | `js/logformat.js` | ทั้งสองฝั่ง | **ค่าคงที่ทั้งหมด**: ชื่อคอลัมน์, `SENSORS`, `STATUS_ITEMS`, สี, ตำแหน่ง Y, parse วันที่ |
 | `js/chart.js` | หน้าเว็บ | สร้างกราฟ uPlot, การใช้เมาส์ / นิ้ว / ปากกา (zoom/pan/เลือกช่วง), วาดสัญลักษณ์ (marker), บันทึกรูป PNG |
@@ -54,7 +62,7 @@ flowchart LR
 
 ## 3. ขั้นที่ 1 — เปิดไฟล์ (`main.js`)
 
-1. ผู้ใช้เลือกไฟล์ / ลากมาวาง / กด "ลองด้วยไฟล์ตัวอย่าง" → `loadFile(file, fileName)`
+1. ผู้ใช้เลือกไฟล์ / ลากมาวาง / กด "ทดลองใช้งานด้วยไฟล์ตัวอย่าง" → `loadFile(file, fileName)`
 2. `loadFile()`
    - เพิ่ม `loadToken` (กันผลของไฟล์เก่าที่ยังทำไม่เสร็จมาทับไฟล์ใหม่)
    - สร้าง Web Worker: `new Worker("./parser.worker.js", { type: "module" })`
@@ -196,7 +204,7 @@ sequenceDiagram
 - **ภาษา (`i18n.js`)** — element ที่มี `data-th`/`data-en` เปลี่ยนเอง, ข้อความจาก JS ใช้ `t({ th, en })`
   เปลี่ยนภาษา → `onLanguageChange` วาดตาราง/ข้อความใหม่
 - **โหมดสว่าง/มืด (`theme.js`)** — ตั้ง `data-theme` บน `<html>` → CSS เปลี่ยนสี, กราฟสร้างใหม่ (คงช่วง zoom)
-- **เวอร์ชัน** — `APP_VERSION` ใน `main.js` แสดงที่หัวเว็บ
+- **เวอร์ชัน** — `APP_VERSION` ใน `site.js` แสดงที่หัวเว็บทุกหน้า
 - **ไฟล์ตัวอย่าง** — `samples/sample.*` สร้างจาก `tools/make-sample.py` ต้องมีข้อมูลครบทุกเส้น
 
 ---

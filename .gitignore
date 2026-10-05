@@ -9,4 +9,6 @@ samples/private/
 *.csv
 !samples/sample.xlsx
 !samples/sample.csv
+# CSV ดิบตัวอย่างแบบ ESP32 (ข้อมูลปลอม จาก tools/make-esp-sample.py) — เฉพาะ device DEMO01
+!samples/esp32/uart_log_DataLogger_DEMO01_*.csv
 ~$*

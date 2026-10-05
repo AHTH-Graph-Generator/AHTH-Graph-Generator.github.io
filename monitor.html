@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<!-- ============================================================
+     monitor.html — ติดตามสถานะ Data Logger (Data Logger Monitoring)
+     การ์ด device: Online / Offline, กราฟอุณหภูมิย่อ 24 ชม., อุณหภูมิล่าสุด 5 เซนเซอร์, ค่าตั้งแผงควบคุม
+     → กดเข้า analyze.html?device=<ชื่อ>
+     ข้อมูลมาจาก js/monitor-api.js ผ่าน Worker — ต้อง login และได้รับอนุมัติ (js/login-ui.js) · ?demo = ข้อมูลจำลอง ไม่ต้อง login
+     ============================================================ -->
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Logger Monitoring · AHTH Graph Generator</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css">
+  <link rel="stylesheet" href="style.css">
+  <script>
+    // ตั้งโหมดสว่าง/มืดก่อนวาดหน้า (กันกระพริบ) — ค่าที่เคยเลือก หรือตามเครื่องผู้ใช้ (ดู js/theme.js)
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem("theme"); } catch (e) {}
+      if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.dataset.theme = t;
+    })();
+  </script>
+</head>
+<body class="page-fill">
+
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="./" class="logo" data-th-title="กลับหน้าแรก" data-en-title="Back to home">AHTH Graph Generator <span class="version">Release version <span id="app-version"></span></span></a>
+      <nav class="page-nav" aria-label="Page">
+        <a href="./" class="nav-home" data-th="← หน้าแรก" data-en="← Home">← หน้าแรก</a>
+        <span class="nav-current" data-th="ติดตามสถานะ Data Logger" data-en="Data Logger Monitoring">ติดตามสถานะ Data Logger</span>
+      </nav>
+      <div class="topbar-buttons">
+        <button id="theme-btn" class="lang-btn" type="button" aria-label="Toggle light / dark mode"
+                data-th-title="สลับโหมดสว่าง / มืด" data-en-title="Toggle light / dark mode">🌙</button>
+        <button id="lang-btn" class="lang-btn" type="button" aria-label="Switch language">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container monitor">
+    <!-- เข้าสู่ระบบ / ขอสิทธิ์ / รออนุมัติ (js/login-ui.js) — แสดงแทนเนื้อหาจนกว่าจะได้รับอนุมัติ -->
+    <div id="auth-gate" class="auth-gate" hidden></div>
+
+    <div id="mon-app" hidden>
+    <section class="monitor-head">
+      <div>
+        <h1 data-th="ติดตามสถานะ Data Logger" data-en="Data Logger Monitoring">ติดตามสถานะ Data Logger</h1>
+        <p class="muted" data-th="สถานะการเชื่อมต่อและข้อมูลล่าสุดของ Data Logger แต่ละเครื่อง ปรับปรุงอัตโนมัติทุก 1 นาที"
+           data-en="Connection status and latest data of each Data Logger, refreshed automatically every minute.">สถานะการเชื่อมต่อและข้อมูลล่าสุดของ Data Logger แต่ละเครื่อง ปรับปรุงอัตโนมัติทุก 1 นาที</p>
+      </div>
+      <div class="monitor-side">
+        <div id="mon-user"></div>
+        <p class="small muted monitor-checked">
+          <!-- ไอคอนวงกลมหมุนระหว่างกำลังปรับปรุงข้อมูล -->
+          <svg id="mon-sync" class="sync-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>
+          <span data-th="ตรวจสอบล่าสุด:" data-en="Last checked:">ตรวจสอบล่าสุด:</span> <span id="mon-checked">–</span>
+          <button id="mon-refresh" class="link-btn" type="button" data-th="ปรับปรุงทันที" data-en="Refresh now">ปรับปรุงทันที</button>
+        </p>
+      </div>
+    </section>
+
+    <p id="mon-demo" class="message warn" hidden
+       data-th="ขณะนี้แสดงข้อมูลจำลองเพื่อการทดสอบ ยังไม่ได้เชื่อมต่อกับระบบจริง"
+       data-en="Showing demo data for testing. Not connected to the live system yet.">ขณะนี้แสดงข้อมูลจำลองเพื่อการทดสอบ ยังไม่ได้เชื่อมต่อกับระบบจริง</p>
+    <p id="mon-error" class="message error" hidden></p>
+
+    <div class="monitor-tools">
+      <input id="mon-search" type="search" autocomplete="off">
+      <div class="seg" role="group" aria-label="Filter">
+        <button type="button" data-filter="all" aria-pressed="true"></button>
+        <button type="button" data-filter="online" aria-pressed="false"></button>
+        <button type="button" data-filter="offline" aria-pressed="false"></button>
+      </div>
+    </div>
+
+    <div id="mon-devices" class="device-grid"></div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p>© <span id="now"></span></p>
+      <p class="footer-credit">Developed by Apiwat Kamsiri</p>
+    </div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js"></script>
+  <script type="module" src="js/monitor.js"></script>
+</body>
+</html>

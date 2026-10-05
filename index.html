@@ -1,18 +1,18 @@
 <!DOCTYPE html>
 <!-- ============================================================
-     index.html — AHTH Graph Generator
-     แสดงกราฟอุณหภูมิจากไฟล์ log ของตู้เย็น (อ่านไฟล์ใน browser เท่านั้น)
-     ข้อความทุกจุดที่มี data-th / data-en จะสลับภาษาได้
+     index.html — หน้าแรกของ AHTH Graph Generator: เลือกไปหน้า Log analyzer หรือ Monitoring
+     หัวเว็บ / ท้ายเว็บ / ภาษา / โหมดสว่าง-มืด ใช้ร่วมกับทุกหน้า (js/site.js + style.css)
      ============================================================ -->
 <html lang="th">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AHTH Graph Generator</title>
-  <meta name="description" content="แสดงกราฟอุณหภูมิจากไฟล์ log ของตู้เย็น / Temperature graphs from refrigerator log files">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css">
+  <meta name="description" content="กราฟอุณหภูมิจากไฟล์ log ของตู้เย็น และติดตาม Data Logger / Refrigerator log graphs and Data Logger monitoring">
   <link rel="stylesheet" href="style.css">
   <script>
+    // ลิงก์เก่า (เช่น /?pentest) เคยเปิดหน้ากราฟตรงๆ → ส่งต่อไปหน้า Log analyzer พร้อมพารามิเตอร์เดิม
+    if (location.search) location.replace("analyze.html" + location.search + location.hash);
     // ตั้งโหมดสว่าง/มืดก่อนวาดหน้า (กันกระพริบ) — ค่าที่เคยเลือก หรือตามเครื่องผู้ใช้ (ดู js/theme.js)
     (function () {
       var t = null;
@@ -22,7 +22,7 @@
     })();
   </script>
 </head>
-<body>
+<body class="page-fill">
 
   <header class="topbar">
     <div class="container topbar-inner">
@@ -35,186 +35,45 @@
     </div>
   </header>
 
-  <main class="container">
-
-    <!-- ===== เลือกไฟล์ ===== -->
-    <section class="panel" id="load-panel">
-      <label id="dropzone" class="dropzone" for="file-input">
-        <input id="file-input" type="file" accept=".log,.txt,.csv,.xlsx" hidden>
-        <span class="dz-icon" aria-hidden="true">📈</span>
-        <strong data-th="ลากไฟล์ .log / .csv / .xlsx มาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์"
-                data-en="Drop a .log / .csv / .xlsx file here, or click to choose one">ลากไฟล์ .log / .csv / .xlsx มาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์</strong>
-        <span class="muted"
-              data-th="ไฟล์ถูกอ่านในเครื่องของคุณเท่านั้น ไม่ถูกส่งขึ้นอินเทอร์เน็ต"
-              data-en="The file is read on your device only. Nothing is uploaded.">ไฟล์ถูกอ่านในเครื่องของคุณเท่านั้น ไม่ถูกส่งขึ้นอินเทอร์เน็ต</span>
-      </label>
-      <p class="sample-line">
-        <button id="sample-btn" class="link-btn" type="button"
-                data-th="ลองด้วยไฟล์ตัวอย่าง" data-en="Try the sample file">ลองด้วยไฟล์ตัวอย่าง</button>
-      </p>
-
-      <div id="progress" class="progress" hidden>
-        <progress id="progress-bar" max="100" value="0"></progress>
-        <span id="progress-text"></span>
-      </div>
-
-      <div id="message" class="message" role="status" hidden></div>
+  <main class="container home">
+    <section class="home-hero">
+      <h1 data-th="ระบบวิเคราะห์และติดตามข้อมูลตู้เย็น" data-en="Refrigerator Data Analysis and Monitoring">ระบบวิเคราะห์และติดตามข้อมูลตู้เย็น</h1>
+      <p class="muted" data-th="เลือกบริการที่ต้องการใช้งาน" data-en="Select a service to continue">เลือกบริการที่ต้องการใช้งาน</p>
     </section>
 
-    <!-- ===== ผลลัพธ์ ===== -->
-    <section id="result" hidden>
+    <div class="home-cards">
+      <a class="home-card" href="analyze.html">
+        <svg class="home-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>
+          <path d="M8.5 17v-3"/><path d="M12 17v-6"/><path d="M15.5 17v-4"/>
+        </svg>
+        <strong data-th="วิเคราะห์ไฟล์ Log" data-en="Log File Analysis">วิเคราะห์ไฟล์ Log</strong>
+        <span class="home-sub" data-th="Log File Analysis" data-en="Offline analysis">Log File Analysis</span>
+        <span class="home-desc" data-th="นำเข้าไฟล์ .log / .csv / .xlsx เพื่อแสดงกราฟอุณหภูมิ สถานะการทำงานของชิ้นส่วน และค่าข้อมูลจริงตามช่วงเวลาที่กำหนด"
+              data-en="Import a .log / .csv / .xlsx file to view temperature graphs, component status and raw values for any time range.">นำเข้าไฟล์ .log / .csv / .xlsx เพื่อแสดงกราฟอุณหภูมิ สถานะการทำงานของชิ้นส่วน และค่าข้อมูลจริงตามช่วงเวลาที่กำหนด</span>
+        <span class="home-meta">
+          <span data-th="ประมวลผลภายในเครื่อง · ไม่ต้องเข้าสู่ระบบ" data-en="Processed locally · no sign-in required">ประมวลผลภายในเครื่อง · ไม่ต้องเข้าสู่ระบบ</span>
+          <span class="home-go" data-th="เข้าใช้งาน →" data-en="Open →">เข้าใช้งาน →</span>
+        </span>
+      </a>
 
-      <div class="panel">
-        <dl id="file-info" class="file-info"></dl>
-      </div>
-
-      <!-- จอแนวนอนกว้าง: ตารางแยกหัวข้อวางรอบกราฟ (ซ้าย / ขวา / ใต้กราฟ) — จอแคบ: เรียงลงมาทีละกล่อง
-           (หัวข้อไหนอยู่ช่องไหน กำหนดด้วย slot ใน TABLE_GROUPS ของ js/main.js) -->
-      <div class="dashboard">
-        <div class="panel chart-panel">
-          <div class="range-controls">
-            <label>
-              <span data-th="เริ่ม" data-en="From">เริ่ม</span>
-              <input id="range-start" type="datetime-local" step="1">
-            </label>
-            <label>
-              <span data-th="สิ้นสุด" data-en="To">สิ้นสุด</span>
-              <input id="range-end" type="datetime-local" step="1">
-            </label>
-            <!-- time zone ที่ใช้แสดงเวลา (ไฟล์ = เวลาไทย): พิมพ์ค้นหาได้ + ปุ่มกลับเป็นเวลาไทย — js/main.js -->
-            <div class="tz-field">
-              <label for="time-zone" data-th="Time zone (พิมพ์ค้นหาได้)" data-en="Time zone (type to search)">Time zone (พิมพ์ค้นหาได้)</label>
-              <div class="tz-row">
-                <div class="tz-combo">
-                  <input id="time-zone" type="text" role="combobox" autocomplete="off" spellcheck="false"
-                         aria-autocomplete="list" aria-expanded="false" aria-controls="tz-list">
-                  <ul id="tz-list" class="tz-list" role="listbox" hidden></ul>
-                </div>
-                <button id="tz-reset" class="btn secondary" type="button"
-                        data-th="↺ เวลาไทย" data-en="↺ Thai time"
-                        data-th-title="กลับเป็นเวลาไทย (เวลาในไฟล์)" data-en-title="Back to Thai time (file time)">↺ เวลาไทย</button>
-              </div>
-            </div>
-            <div class="range-buttons">
-              <button id="range-apply" class="btn" type="button" data-th="แสดงช่วงนี้" data-en="Apply">แสดงช่วงนี้</button>
-              <button id="zoom-reset" class="btn secondary" type="button" data-th="ดูทั้งหมด" data-en="Reset zoom">ดูทั้งหมด</button>
-            </div>
-          </div>
-          <!-- วิธีใช้: เมาส์ (คอม) / นิ้ว (iPad, มือถือ) — style.css เลือกแสดงตามอุปกรณ์ -->
-          <ul class="hint hint-mouse muted">
-            <li data-th="ลูกกลิ้งเมาส์ = ซูมเข้า/ออก" data-en="Mouse wheel = zoom in/out">ลูกกลิ้งเมาส์ = ซูมเข้า/ออก</li>
-            <li data-th="ลากคลิกขวา = เลื่อนกราฟซ้าย/ขวา" data-en="Right-drag = pan left/right">ลากคลิกขวา = เลื่อนกราฟซ้าย/ขวา</li>
-            <li data-th="ลากคลิกซ้าย = เลือกช่วงเพื่อดูค่า · คลิกซ้ายเพื่อยกเลิก" data-en="Left-drag = select a range to inspect · left-click to clear">ลากคลิกซ้าย = เลือกช่วงเพื่อดูค่า · คลิกซ้ายเพื่อยกเลิก</li>
-            <li data-th="ดับเบิลคลิก = ดูค่าจริง (Real data) ณ จุดนั้น" data-en="Double-click = Real data at that point">ดับเบิลคลิก = ดูค่าจริง (Real data) ณ จุดนั้น</li>
-          </ul>
-          <ul class="hint hint-touch muted">
-            <li data-th="แตะ = ดูค่า ณ จุดนั้น" data-en="Tap = show values at that point">แตะ = ดูค่า ณ จุดนั้น</li>
-            <li data-th="ลากนิ้วแนวนอน = เลือกช่วง" data-en="Drag sideways = select a range">ลากนิ้วแนวนอน = เลือกช่วง</li>
-            <li data-th="จีบ/ถ่าง 2 นิ้ว = ซูม · ลาก 2 นิ้ว = เลื่อนกราฟ" data-en="Pinch = zoom · two-finger drag = pan">จีบ/ถ่าง 2 นิ้ว = ซูม · ลาก 2 นิ้ว = เลื่อนกราฟ</li>
-            <li data-th="แตะ 2 ครั้ง = ดูค่าจริง (Real data) ณ จุดนั้น" data-en="Double-tap = Real data at that point">แตะ 2 ครั้ง = ดูค่าจริง (Real data) ณ จุดนั้น</li>
-            <li data-th="ปากกา: ลากทิศไหนก็ได้ = เลือกช่วง · ลอยปากกา = ดูค่า" data-en="Pencil: drag any direction = select · hover = show values">ปากกา: ลากทิศไหนก็ได้ = เลือกช่วง · ลอยปากกา = ดูค่า</li>
-          </ul>
-
-          <!-- แถบเครื่องมือโน้ต: วาดด้วยปากกา/นิ้ว/เมาส์ + บันทึกกราฟเป็นรูป (js/annotate.js) -->
-          <div class="draw-toolbar" role="toolbar">
-            <button id="draw-toggle" class="tool-btn" type="button" aria-pressed="false"
-                    data-th="✏️ วาดโน้ต" data-en="✏️ Draw notes">✏️ วาดโน้ต</button>
-            <span id="draw-tools" class="draw-tools" hidden>
-              <button class="color-btn" type="button" data-color="rgb(229, 50, 45)" style="background: rgb(229, 50, 45)"
-                      data-th-title="สีแดง" data-en-title="Red" aria-label="Red"></button>
-              <button class="color-btn" type="button" data-color="rgb(31, 111, 235)" style="background: rgb(31, 111, 235)"
-                      data-th-title="สีน้ำเงิน" data-en-title="Blue" aria-label="Blue"></button>
-              <button class="color-btn" type="button" data-color="rgb(255, 140, 0)" style="background: rgb(255, 140, 0)"
-                      data-th-title="สีส้ม" data-en-title="Orange" aria-label="Orange"></button>
-              <button id="draw-eraser" class="tool-btn" type="button" aria-pressed="false"
-                      data-th="ยางลบ" data-en="Eraser">ยางลบ</button>
-              <button id="draw-clear" class="tool-btn" type="button"
-                      data-th="ล้างโน้ตทั้งหมด" data-en="Clear notes">ล้างโน้ตทั้งหมด</button>
-            </span>
-            <button id="raw-open" class="tool-btn" type="button"
-                    data-th="📋 Real data (ค่าจริงจาก log)" data-en="📋 Real data">📋 Real data (ค่าจริงจาก log)</button>
-            <button id="save-png" class="tool-btn" type="button"
-                    data-th="💾 บันทึกกราฟเป็นรูป" data-en="💾 Save chart as PNG">💾 บันทึกกราฟเป็นรูป</button>
-          </div>
-
-          <div id="chart" class="chart"></div>
-
-          <p class="cursor-time"><span data-th="เวลาที่เคอร์เซอร์:" data-en="Cursor time:">เวลาที่เคอร์เซอร์:</span>
-            <strong id="cursor-time">–</strong>
-            <span class="cursor-sep">·</span>
-            <span data-th="ซอฟต์แวร์:" data-en="Software:">ซอฟต์แวร์:</span>
-            <strong id="cursor-software">–</strong>
-            <span class="cursor-sep">·</span>
-            <span data-th="Work mode:" data-en="Work mode:">Work mode:</span>
-            <strong id="cursor-workmode">–</strong></p>
-          <p id="stats-scope" class="stats-scope">
-            <span id="stats-scope-text"></span>
-            <button id="clear-selection" class="link-btn" type="button" hidden
-                    data-th="ยกเลิกการเลือก" data-en="Clear selection">ยกเลิกการเลือก</button>
-          </p>
-        </div>
-
-        <div id="slot-left" class="slot slot-left"></div>
-        <div id="slot-right" class="slot slot-right"></div>
-        <div id="slot-below" class="slot slot-below"></div>
-      </div>
-    </section>
-  </main>
-
-  <!-- หน้าต่าง Real data: ตารางค่าดิบจากไฟล์ log ในช่วงที่เลือก (js/rawdata.js) -->
-  <div id="raw-modal" class="modal" hidden>
-    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="raw-title">
-      <div class="modal-head">
-        <div>
-          <h2 id="raw-title" data-th="ข้อมูลจริงจาก log" data-en="Real data from log">ข้อมูลจริงจาก log</h2>
-          <span id="raw-range" class="muted small"></span>
-        </div>
-        <button id="raw-close" class="icon-btn" type="button" aria-label="Close"
-                data-th-title="ปิด (Esc)" data-en-title="Close (Esc)">✕</button>
-      </div>
-      <div class="raw-controls">
-        <input id="raw-search" type="search" autocomplete="off">
-        <label class="raw-check"><input id="raw-used-only" type="checkbox">
-          <span data-th="เฉพาะคอลัมน์ที่ใช้ในกราฟ" data-en="Only columns used in the chart">เฉพาะคอลัมน์ที่ใช้ในกราฟ</span></label>
-        <span id="raw-cols" class="muted small"></span>
-        <span id="raw-page" class="raw-pager small"></span>
-        <button id="raw-export" class="btn" type="button"
-                data-th="⬇ Export CSV" data-en="⬇ Export CSV">⬇ Export CSV</button>
-      </div>
-      <!-- คอลัมน์ที่เลือกไว้เทียบกัน (☆ ที่หัวคอลัมน์) — อยู่ติดคอลัมน์เวลาเสมอ ไม่ว่าจะค้นหาอะไร -->
-      <div id="raw-compare" class="raw-compare" hidden>
-        <span class="small" data-th="เทียบ:" data-en="Compare:">เทียบ:</span>
-        <span id="raw-picked" class="raw-picked"></span>
-        <label class="raw-check"><input id="raw-picked-only" type="checkbox">
-          <span data-th="แสดงเฉพาะคอลัมน์ที่เลือก" data-en="Show selected columns only">แสดงเฉพาะคอลัมน์ที่เลือก</span></label>
-        <button id="raw-picked-clear" class="link-btn" type="button" data-th="ล้างที่เลือก" data-en="Clear">ล้างที่เลือก</button>
-      </div>
-      <!-- สถานะการเรียง / กรอง -->
-      <div id="raw-order" class="raw-order small" hidden>
-        <span id="raw-order-text"></span>
-        <button id="raw-order-clear" class="link-btn" type="button"
-                data-th="ล้างการเรียง/กรอง" data-en="Clear sort / filter">ล้างการเรียง/กรอง</button>
-      </div>
-      <p id="raw-status" class="small" hidden></p>
-      <div id="raw-scroll" class="raw-scroll"><table id="raw-table" class="raw-table"></table></div>
-      <!-- เมนูหัวคอลัมน์ (คลิกชื่อคอลัมน์): เลือกเทียบ / เรียง / กรองค่า แบบ Excel -->
-      <div id="raw-menu" class="raw-menu" hidden role="menu">
-        <div id="raw-menu-title" class="raw-menu-title"></div>
-        <button id="raw-menu-pick" type="button" role="menuitem"></button>
-        <button id="raw-menu-asc" type="button" role="menuitem" data-th="▲ เรียงน้อย → มาก" data-en="▲ Sort smallest → largest">▲ เรียงน้อย → มาก</button>
-        <button id="raw-menu-desc" type="button" role="menuitem" data-th="▼ เรียงมาก → น้อย" data-en="▼ Sort largest → smallest">▼ เรียงมาก → น้อย</button>
-        <label class="raw-menu-filter">
-          <span data-th="กรองค่า" data-en="Filter">กรองค่า</span>
-          <input id="raw-menu-filter" type="text" autocomplete="off" spellcheck="false">
-        </label>
-        <p class="raw-menu-help muted" data-th="เช่น 0 · !=0 · >100 · <=-5 · 10..20 · ข้อความ" data-en="e.g. 0 · !=0 · >100 · <=-5 · 10..20 · text">เช่น 0 · !=0 · >100 · <=-5 · 10..20 · ข้อความ</p>
-        <div class="raw-menu-actions">
-          <button id="raw-menu-apply" class="btn" type="button" data-th="กรอง" data-en="Filter">กรอง</button>
-          <button id="raw-menu-unfilter" class="btn secondary" type="button" data-th="ล้างตัวกรอง" data-en="Clear filter">ล้างตัวกรอง</button>
-        </div>
-      </div>
+      <!-- หน้า Monitoring (v2.0) — ต้อง login + ได้รับอนุมัติ (ข้อมูลผ่าน Worker ใน js/config.js) -->
+      <a class="home-card" href="monitor.html">
+        <svg class="home-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/>
+          <path d="M6.5 11h2l1.5-3 2 5 1.5-2h4"/>
+        </svg>
+        <strong data-th="ติดตามสถานะ Data Logger" data-en="Data Logger Monitoring">ติดตามสถานะ Data Logger</strong>
+        <span class="home-sub" data-th="Data Logger Monitoring" data-en="Online monitoring">Data Logger Monitoring</span>
+        <span class="home-desc" data-th="แสดงสถานะการเชื่อมต่อของอุปกรณ์ Data Logger และข้อมูลการทำงานล่าสุด โดยปรับปรุงข้อมูลอัตโนมัติ"
+              data-en="View the connection status of each Data Logger and its latest operating data, refreshed automatically.">แสดงสถานะการเชื่อมต่อของอุปกรณ์ Data Logger และข้อมูลการทำงานล่าสุด โดยปรับปรุงข้อมูลอัตโนมัติ</span>
+        <span class="home-meta">
+          <span data-th="สำหรับผู้ใช้ที่ได้รับอนุญาตเท่านั้น · ต้องเข้าสู่ระบบ" data-en="Authorized users only · sign-in required">สำหรับผู้ใช้ที่ได้รับอนุญาตเท่านั้น · ต้องเข้าสู่ระบบ</span>
+          <span class="home-go" data-th="เข้าใช้งาน →" data-en="Open →">เข้าใช้งาน →</span>
+        </span>
+      </a>
     </div>
-  </div>
+  </main>
 
   <footer class="footer">
     <div class="container">
@@ -223,7 +82,9 @@
     </div>
   </footer>
 
-  <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js"></script>
-  <script type="module" src="js/main.js"></script>
+  <script type="module">
+    import { initSite } from "./js/site.js";
+    initSite();
+  </script>
 </body>
 </html>

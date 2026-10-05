@@ -1,6 +1,7 @@
 // ============================================================
 // parser.worker.js — อ่านไฟล์ log (.log / .txt / .csv / .xlsx) แบบ streaming ใน Web Worker
 // รับ:  { file, name }  (File หรือ Blob + ชื่อไฟล์)
+// ไฟล์ CSV ดิบจาก ESP32 (`timestamp,raw_hex`) ถูกถอดรหัสเป็นแถวแบบ log ก่อน (espAdapter) แล้วใช้ parser เดิม
 // ส่ง:  { type: "progress", loaded, total }
 //       { type: "done", result }   (typed array ถูก transfer ไม่ copy)
 //       { type: "error", code, params }
@@ -13,6 +14,7 @@ import {
   parseDateParts, dateOrderHint, defaultDateOrder, partsToEpoch,
 } from "./logformat.js";
 import { readTextRecords, readXlsxRecords, isZipFile, XlsxError } from "./sources.js";
+import { isEspHeader, decodeEspFields, ESP_TIME_COLUMN, ESP_COLUMN_NAMES } from "./espdecoder.js";
 
 const MAX_BAD_SAMPLES = 20;
 const PROGRESS_INTERVAL_MS = 100;
@@ -173,6 +175,7 @@ function createParser() {
     skippedSamples: [],
     lastTime: -Infinity,
     recordCount: 0,
+    format: "log",         // "log" | "esp32" (CSV ดิบจาก ESP32 Data Logger)
   };
 
   const skip = (lineNo, reason, detail) => {
@@ -328,10 +331,15 @@ function createParser() {
       duplicateCount: state.duplicateCount,
       skippedCount: state.skippedCount,
       skippedSamples: state.skippedSamples,
+      format: state.format,
     };
   }
 
-  return { onRecord, finish };
+  // espAdapter แจ้ง: ไฟล์นี้เป็น CSV ดิบจาก ESP32 / แถวที่ frame เสีย (byte ไม่ครบ / ไม่ใช่ hex)
+  const onFormat = (format) => { state.format = format; };
+  const onBadFrame = (lineNo, error, detail) => skip(lineNo, error === "short" ? "frame" : "hex", detail);
+
+  return { onRecord, finish, onFormat, onBadFrame };
 }
 
 // ส่ง progress ไม่ถี่เกินไป
@@ -345,7 +353,32 @@ function progressReporter() {
   };
 }
 
-async function readRecords(file, name, onRecord) {
+// ---------- CSV ดิบจาก ESP32 → แถวแบบ log ----------
+// แถวแรกที่มีข้อมูลเป็น "timestamp,raw_hex" → แทนด้วย header [Timestamp, ชื่อ 187 ฟิลด์]
+// แถวต่อๆ ไป → [เวลา, ค่าที่ถอดแล้ว…]; frame เสีย → hooks.onBadFrame (ไม่ส่งต่อ = ข้ามแถว, ไม่เติม 0)
+// ไฟล์อื่น → ส่งต่อตามเดิมทุกแถว
+function espAdapter(onRecord, hooks = {}) {
+  let mode = null; // null = ยังไม่รู้, "esp", "plain"
+  return (fields, lineNo) => {
+    if (mode === "plain" || isBlank(fields)) { onRecord(fields, lineNo); return; }
+    if (mode === null) {
+      mode = isEspHeader(fields) ? "esp" : "plain";
+      if (mode === "plain") { onRecord(fields, lineNo); return; }
+      hooks.onFormat?.("esp32");
+      onRecord([ESP_TIME_COLUMN, ...ESP_COLUMN_NAMES], lineNo);
+      return;
+    }
+    const decoded = decodeEspFields(fields);
+    if (decoded.error) { hooks.onBadFrame?.(lineNo, decoded.error, decoded.detail); return; }
+    const row = new Array(decoded.values.length + 1);
+    row[0] = fields[0].trim();
+    for (let i = 0; i < decoded.values.length; i++) row[i + 1] = String(decoded.values[i]);
+    onRecord(row, lineNo);
+  };
+}
+
+async function readRecords(file, name, onRecord, hooks) {
+  onRecord = espAdapter(onRecord, hooks);
   const onProgress = progressReporter();
   if (/\.xls$/i.test(name)) throw new ParseError("xlsUnsupported");
   if (/\.xlsx$/i.test(name) || await isZipFile(file)) {
@@ -408,7 +441,7 @@ self.onmessage = async ({ data }) => {
   try {
     if (!data.file || data.file.size === 0) throw new ParseError("emptyFile");
     const parser = createParser();
-    await readRecords(data.file, data.name || "", parser.onRecord);
+    await readRecords(data.file, data.name || "", parser.onRecord, parser);
     const result = parser.finish();
     const transfer = [result.times.buffer, ...result.series.map((s) => s.values.buffer)];
     Object.values(result.status).forEach((values) => transfer.push(values.buffer));

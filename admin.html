@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<!-- ============================================================
+     admin.html — จัดการผู้ใช้ระบบติดตามสถานะ Data Logger (เฉพาะผู้ดูแลระบบ)
+     อนุมัติ / ปฏิเสธ / ถอนสิทธิ์ / ลบ — การตรวจสิทธิ์แอดมินอยู่ที่ Worker (หน้านี้แค่แสดงผล)
+     โค้ด: js/admin.js · เข้าสู่ระบบ: js/login-ui.js
+     ============================================================ -->
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>Manage Users · AHTH Graph Generator</title>
+  <link rel="stylesheet" href="style.css">
+  <script>
+    // ตั้งโหมดสว่าง/มืดก่อนวาดหน้า (กันกระพริบ) — ค่าที่เคยเลือก หรือตามเครื่องผู้ใช้ (ดู js/theme.js)
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem("theme"); } catch (e) {}
+      if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      document.documentElement.dataset.theme = t;
+    })();
+  </script>
+</head>
+<body class="page-fill">
+
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="./" class="logo" data-th-title="กลับหน้าแรก" data-en-title="Back to home">AHTH Graph Generator <span class="version">Release version <span id="app-version"></span></span></a>
+      <nav class="page-nav" aria-label="Page">
+        <a href="monitor.html" class="nav-home" data-th="← ติดตามสถานะ Data Logger" data-en="← Data Logger Monitoring">← ติดตามสถานะ Data Logger</a>
+        <span class="nav-current" data-th="จัดการผู้ใช้" data-en="Manage users">จัดการผู้ใช้</span>
+      </nav>
+      <div class="topbar-buttons">
+        <button id="theme-btn" class="lang-btn" type="button" aria-label="Toggle light / dark mode"
+                data-th-title="สลับโหมดสว่าง / มืด" data-en-title="Toggle light / dark mode">🌙</button>
+        <button id="lang-btn" class="lang-btn" type="button" aria-label="Switch language">EN</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container admin">
+    <div id="auth-gate" class="auth-gate" hidden></div>
+
+    <div id="admin-app" hidden>
+      <section class="monitor-head">
+        <div>
+          <h1 data-th="จัดการผู้ใช้" data-en="Manage users">จัดการผู้ใช้</h1>
+          <p class="muted" data-th="อนุมัติหรือยกเลิกสิทธิ์เข้าใช้หน้าติดตามสถานะ Data Logger — ผู้ใช้ได้รับอีเมลแจ้งเมื่อได้รับอนุมัติ"
+             data-en="Approve or revoke access to Data Logger Monitoring. Users are notified by email when approved.">อนุมัติหรือยกเลิกสิทธิ์เข้าใช้หน้าติดตามสถานะ Data Logger — ผู้ใช้ได้รับอีเมลแจ้งเมื่อได้รับอนุมัติ</p>
+        </div>
+        <div class="monitor-side">
+          <div id="admin-user"></div>
+          <p class="small muted monitor-checked">
+            <button id="admin-refresh" class="link-btn" type="button" data-th="ปรับปรุงรายชื่อ" data-en="Refresh list">ปรับปรุงรายชื่อ</button>
+          </p>
+        </div>
+      </section>
+
+      <p id="admin-error" class="message error" hidden></p>
+      <div class="monitor-tools">
+        <div class="seg" role="group" aria-label="Filter" id="admin-tabs"></div>
+      </div>
+      <div id="admin-list" class="user-list"></div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <p>© <span id="now"></span></p>
+      <p class="footer-credit">Developed by Apiwat Kamsiri</p>
+    </div>
+  </footer>
+
+  <script type="module" src="js/admin.js"></script>
+</body>
+</html>

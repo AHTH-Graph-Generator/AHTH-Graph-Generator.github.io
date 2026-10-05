@@ -490,6 +490,13 @@ export function createChart(container, times, seriesList, handlers, markerLayers
     resetZoom: () => plot.setScale("x", { min: times[0], max: times[times.length - 1] }),
     getRange: () => [plot.scales.x.min, plot.scales.x.max],
     getSelection: () => (selection ? { ...selection } : null),
+    // ตั้งช่วงที่เลือกคืน (เช่นหลังโหลดข้อมูลใหม่ในหน้า device) — ผูกกับเวลา ไม่ใช่ pixel
+    setSelection: (sel) => {
+      if (!sel) { clearSelection(); return; }
+      selection = { min: sel.min, max: sel.max };
+      drawSelection(plot);
+      handlers.onSelect({ ...selection });
+    },
     refreshLabels: () => updateSpanLabel(plot), // เรียกหลังเปลี่ยนภาษา
     redrawAxes: () => plot.redraw(false, true), // เรียกหลังเปลี่ยน time zone (ตัวเลขเวลาบนแกน X)
     // ---- โน้ต ----

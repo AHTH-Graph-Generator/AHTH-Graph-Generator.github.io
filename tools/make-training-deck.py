@@ -166,8 +166,8 @@ background(s, NIGHT)
 circle_num(s, 0.8, 1.2, 0.9, "°C", fill=CORAL, size=22)
 text(s, 0.8, 2.4, 11.5, 1.2, "AHTH Graph Generator", size=54, bold=True, color=WHITE)
 text(s, 0.8, 3.55, 11.5, 0.7, "คู่มือการพัฒนาและดูแลระบบ — ทำทีละขั้น", size=26, color=CODE_KEY)
-text(s, 0.8, 4.5, 11.5, 1.0, ["เว็บแสดงกราฟอุณหภูมิจากไฟล์ log ของตู้เย็น",
-                             "Release 1.9 · https://ahth-graph-generator.github.io"], size=16, color=RGBColor(0xB8, 0xC4, 0xD4),
+text(s, 0.8, 4.5, 11.5, 1.4, ["ระบบวิเคราะห์และติดตามข้อมูลตู้เย็น: วิเคราะห์ไฟล์ Log + ติดตามสถานะ Data Logger",
+                             "Release 2.0 · https://ahth-graph-generator.github.io"], size=16, color=RGBColor(0xB8, 0xC4, 0xD4),
      line_spacing=1.3)
 notes(s, "แนะนำตัวโปรเจกต์: เว็บที่อ่านไฟล์ log ของตู้เย็นแล้วแสดงกราฟอุณหภูมิและสถานะชิ้นส่วน "
          "สไลด์ชุดนี้สอนว่าโปรแกรมทำงานอย่างไร และทำงานประจำ (เพิ่มรายการ ทดสอบ release) ทีละขั้น "
@@ -176,9 +176,9 @@ notes(s, "แนะนำตัวโปรเจกต์: เว็บที�
 # ---------------- 2. What it is ----------------
 s = prs.slides.add_slide(BLANK); n += 1
 background(s, WHITE)
-title(s, "โปรแกรมนี้คืออะไร", "เว็บ static บน GitHub Pages — อ่านไฟล์ในเครื่องผู้ใช้ ไม่มี server")
-stats = [("100+", "MB ต่อไฟล์ log ที่อ่านได้\nโดยหน้าเว็บไม่ค้าง"), ("0", "server / database\nไฟล์ไม่ถูกส่งไปไหน"),
-         ("4", "ชนิดไฟล์ที่รับ\n.log .txt .csv .xlsx"), ("40+", "เส้นและสัญลักษณ์\nบนกราฟเดียว")]
+title(s, "โปรแกรมนี้คืออะไร", "เว็บ static บน GitHub Pages — 2 บริการ: วิเคราะห์ไฟล์ Log (ในเครื่อง) + ติดตามสถานะ Data Logger (ต้อง login)")
+stats = [("100+", "MB ต่อไฟล์ log ที่อ่านได้\nโดยหน้าเว็บไม่ค้าง"), ("2", "บริการ: วิเคราะห์ไฟล์\n+ ติดตาม Data Logger"),
+         ("5", "ชนิดไฟล์ที่รับ .log .txt\n.csv .xlsx + CSV ดิบ ESP32"), ("40+", "เส้นและสัญลักษณ์\nบนกราฟเดียว")]
 for i, (big, small) in enumerate(stats):
     x = 0.6 + i * 3.08
     box(s, x, 2.0, 2.85, 2.6, ICE)
@@ -187,10 +187,40 @@ for i, (big, small) in enumerate(stats):
 text(s, 0.6, 5.1, 12.1, 1.8, [
     [("ใช้อะไรสร้าง  ", {"bold": True, "color": NIGHT}), ("HTML + CSS + JavaScript ล้วน (ES modules) · ไม่มี build step · กราฟใช้ uPlot 1.6.32 จาก CDN", {})],
     [("ใช้ทำอะไร  ", {"bold": True, "color": NIGHT}), ("ดูอุณหภูมิ + การทำงานของ compressor / พัดลม / heater / valve / error ตามเวลา, เลือกช่วงดู Min/Max/Avg", {})],
+    [("ข้อมูลอยู่ที่ไหน  ", {"bold": True, "color": NIGHT}), ("ไฟล์ที่เปิดเองอ่านในเครื่องเท่านั้น · ข้อมูล Data Logger ดึงผ่าน Worker ที่ตรวจสิทธิ์ทุกคำขอ", {})],
 ], size=16, line_spacing=1.3, space_after=8)
 page_no(s, n)
-notes(s, "จุดสำคัญ: เป็น static site ไม่มี backend ทุกอย่างทำใน browser ของผู้ใช้ ไฟล์ log ไม่ถูก upload "
-         "ไฟล์จริงใหญ่ได้ถึง 100 MB (~200,000 แถว) จึงต้องอ่านใน Web Worker")
+notes(s, "จุดสำคัญ: หน้าเว็บเป็น static site (GitHub Pages) · บริการวิเคราะห์ไฟล์ Log ทำทุกอย่างใน browser ไฟล์ไม่ถูก upload "
+         "· บริการติดตามสถานะ Data Logger (v2.0) ดึงข้อมูลจาก Google Drive ผ่าน Cloudflare Worker ซึ่งตรวจ login ทุกคำขอ "
+         "· ไฟล์จริงใหญ่ได้ถึง 100 MB (~200,000 แถว) จึงต้องอ่านใน Web Worker")
+
+# ---------------- 2b. Pages (v2.0) ----------------
+s = prs.slides.add_slide(BLANK); n += 1
+background(s, WHITE)
+title(s, "หน้าเว็บทั้งหมด (v2.0)", "แต่ละหน้ามีหน้าที่อะไร และทำเพื่ออะไร")
+pages = [
+    ("index.html", "หน้าแรก: การ์ดเลือก 2 บริการ", "จุดเริ่มต้นเดียว · ลิงก์เก่า (เช่น /?pentest) ส่งต่อไปหน้าวิเคราะห์ไฟล์", "–"),
+    ("analyze.html", "วิเคราะห์ไฟล์ Log: นำเข้าไฟล์ → กราฟ ตาราง Real data โน้ต บันทึกรูป", "ตรวจปัญหาจากไฟล์ log ที่มีอยู่ ข้อมูลไม่ออกจากเครื่อง", "ไม่ต้อง"),
+    ("analyze.html?device=Q003", "กราฟเต็มของ Data Logger 1 เครื่อง ปรับปรุงเอง ช่วง 1–60 วัน", "ใช้หน้ากราฟเดิมทั้งหมด ไม่ต้องดาวน์โหลดไฟล์มาเปิดเอง", "ต้อง"),
+    ("monitor.html", "การ์ด Data Logger: สถานะ, กราฟย่อ 24 ชม., อุณหภูมิ, แผงควบคุม", "ดูทุกเครื่องในหน้าเดียว รู้ทันทีว่าเครื่องไหน Offline / มี error", "ต้อง"),
+    ("admin.html", "จัดการผู้ใช้: อนุมัติ / ปฏิเสธ / ถอนสิทธิ์ / ลบ", "ให้แอดมินคนเดียวควบคุมว่าใครเห็นข้อมูลได้", "แอดมิน"),
+]
+cols = [("หน้า (ไฟล์)", 0.6, 3.25), ("หน้าที่", 3.95, 4.35), ("ทำเพื่ออะไร", 8.4, 3.35), ("login", 11.85, 0.85)]
+for h, x, w in cols:
+    box(s, x, 1.9, w, 0.5, NIGHT, radius=False)
+    text(s, x + 0.15, 2.0, w - 0.25, 0.35, h, size=14, bold=True, color=WHITE)
+for i, row in enumerate(pages):
+    y = 2.45 + i * 0.88
+    for j, (h, x, w) in enumerate(cols):
+        box(s, x, y, w, 0.82, ICE2 if i % 2 == 0 else WHITE, radius=False, line=ICE)
+        text(s, x + 0.15, y + 0.12, w - 0.25, 0.65, row[j], size=13 if j else 13.5, bold=(j == 0),
+             color=TEAL_DARK if j == 0 else (CORAL if j == 3 and row[3] not in ("–", "ไม่ต้อง") else INK),
+             font=MONO if j == 0 else FONT, line_spacing=1.1)
+text(s, 0.6, 6.95, 12.1, 0.35, "ทุกหน้าใช้หัวเว็บ / ท้ายเว็บ / ภาษา / โหมดสว่าง-มืด / time zone ร่วมกันจาก js/site.js — ห้ามก๊อปโค้ดแยกแต่ละหน้า",
+     size=13, color=MUTED)
+page_no(s, n)
+notes(s, "v2.0 แยกเป็นหลายหน้า: หน้าแรกเลือกบริการ · หน้าวิเคราะห์ไฟล์คือหน้าเดิมของ v1 · หน้ากราฟของเครื่องใช้ analyze.html เดิม "
+         "แค่เติม ?device= (ไม่ทำหน้าแยก เพื่อไม่ต้องดูแลหน้ากราฟ 2 ชุด) · monitor.html และ admin.html ต้อง login · ?demo = ข้อมูลจำลองไม่ต้อง login")
 
 # ---------------- 3. Architecture flow ----------------
 s = prs.slides.add_slide(BLANK); n += 1
@@ -222,13 +252,13 @@ notes(s, "เล่าตามลูกศร: ผู้ใช้เลือ�
 # ---------------- 4. Files ----------------
 s = prs.slides.add_slide(BLANK); n += 1
 background(s, WHITE)
-title(s, "ไฟล์และหน้าที่", "ค่าคงที่ทั้งหมดอยู่ที่ logformat.js ที่เดียว — การเพิ่มข้อมูลส่วนใหญ่แก้แค่ไฟล์นี้")
+title(s, "ไฟล์หลักของการวิเคราะห์ไฟล์ Log", "ค่าคงที่ทั้งหมดอยู่ที่ logformat.js ที่เดียว — การเพิ่มข้อมูลส่วนใหญ่แก้แค่ไฟล์นี้")
 files = [
     ("js/logformat.js", "ค่าคงที่: ชื่อคอลัมน์ SENSORS, STATUS_ITEMS, สี, ตำแหน่ง Y, parse วันที่", True),
-    ("js/main.js", "จุดเริ่มต้น: ผูก UI, เรียก Worker, สร้างรายการ/ตาราง/กราฟ", False),
+    ("js/main.js", "จุดเริ่มต้นหน้า analyze: ผูก UI, เรียก Worker, ตาราง/กราฟ, time zone", False),
     ("js/parser.worker.js", "อ่านไฟล์ทีละแถว หาคอลัมน์จากชื่อ ตรวจแถวเสีย (Web Worker)", False),
-    ("js/sources.js", "แปลง .log/.csv/.xlsx เป็นแถว (xlsx อ่านเองไม่ใช้ library)", False),
-    ("js/chart.js", "กราฟ uPlot + เมาส์: zoom / pan / เลือกช่วง + วาดสัญลักษณ์", False),
+    ("js/sources.js · js/rawdata.js", "แปลงไฟล์เป็นแถว (xlsx อ่านเอง) · หน้าต่าง Real data + Export CSV", False),
+    ("js/chart.js · js/annotate.js", "กราฟ uPlot + เมาส์ / นิ้ว / ปากกา · วาดโน้ตบนกราฟ", False),
     ("js/stats.js", "หาช่วง index จากเวลา + คำนวณ Min / Max / Avg", False),
     ("js/i18n.js · js/theme.js", "สลับภาษา TH/EN · สลับโหมดสว่าง/มืด", False),
     ("tools/make-sample.py", "สร้างไฟล์ตัวอย่าง (ข้อมูลปลอม) + ไฟล์เสียสำหรับทดสอบ", False),
@@ -305,6 +335,194 @@ page_no(s, n)
 notes(s, "sensor มาจากตาราง SENSORS (คอลัมน์ .InC) ที่เหลือมาจาก STATUS_ITEMS · line แปลงค่าเป็นตำแหน่ง Y "
          "(2 ระดับ ON/OFF หรือเทียบสัดส่วน) · marker วาดตอนเกิดเหตุการณ์ · value แสดงแค่ตัวเลข")
 
+# ================= Monitoring (v2.0) =================
+s = prs.slides.add_slide(BLANK); n += 1
+background(s, NIGHT)
+circle_num(s, 0.8, 2.3, 1.0, "2.0", fill=CORAL, size=22)
+text(s, 0.8, 3.55, 11.5, 1.0, "ติดตามสถานะ Data Logger", size=44, bold=True, color=WHITE)
+text(s, 0.8, 4.5, 11.5, 0.8, "ข้อมูลเดินทางอย่างไร · ไฟล์แต่ละไฟล์ทำอะไร · ระบบสมาชิก · ค่าลับอยู่ที่ไหน", size=20, color=CODE_KEY)
+notes(s, "ส่วนที่เพิ่มใน v2.0 — ดูข้อมูลจาก ESP32 Data Logger ได้โดยไม่ต้องดาวน์โหลดไฟล์มาเปิดเอง")
+
+# ---- Data flow ----
+s = prs.slides.add_slide(BLANK); n += 1
+background(s, WHITE)
+title(s, "ข้อมูลเดินทางอย่างไร", "จาก ESP32 ที่ตู้ จนขึ้นการ์ดและกราฟบนเว็บ — ทุกส่วนใช้แบบฟรี")
+flow = [("ESP32\nData Logger", "อ่าน UART ของตู้\nเขียน CSV ทุก 10 นาที\nไฟล์ใหม่ทุกวัน", "ต้นทางข้อมูล"),
+        ("Google Drive", "เก็บไฟล์\nuart_log_DataLogger_\n<device>_<วันที่>.csv", "โฟลเดอร์ private"),
+        ("Apps Script\nCode.gs", "อ่านรายการไฟล์ 62 วัน\nส่งเนื้อไฟล์ + ส่งอีเมล", "อ่าน Drive ด้วยสิทธิ์บัญชีเรา"),
+        ("Cloudflare\nWorker", "ตรวจ login ทุกคำขอ\nรายชื่อผู้ใช้ใน KV\nจำไฟล์เก่าไว้", "ถือค่าลับแทนเว็บ"),
+        ("เว็บ\nmonitor / analyze", "ถอดรหัส 228 byte\nใน Worker ของ browser\n→ การ์ด + กราฟ", "ใช้ parser / กราฟเดิม")]
+bw, gap = 2.15, 0.35
+for i, (h, d, why) in enumerate(flow):
+    x = 0.6 + i * (bw + gap)
+    dark = i in (2, 3)
+    box(s, x, 1.95, bw, 3.25, NIGHT if dark else ICE)
+    circle_num(s, x + 0.2, 2.1, 0.5, str(i + 1), size=14)
+    text(s, x + 0.2, 2.72, bw - 0.4, 0.75, h, size=15.5, bold=True, color=WHITE if dark else NIGHT, line_spacing=1.05)
+    text(s, x + 0.2, 3.55, bw - 0.4, 1.1, d, size=12, color=CODE_KEY if dark else INK, line_spacing=1.15)
+    text(s, x + 0.2, 4.72, bw - 0.4, 0.4, why, size=11, color=CODE_KEY if dark else MUTED, italic=True)
+    if i < len(flow) - 1:
+        arrow(s, x + bw + 0.05, 3.4, gap - 0.1, 0.3, fill=CORAL)
+box(s, 0.6, 5.45, 12.1, 1.3, CORAL_SOFT)
+text(s, 0.9, 5.6, 11.5, 1.05, [
+    [("ทำไมต้องมี Worker?  ", {"bold": True, "color": CORAL}), ("repo เป็น Public — รหัสลับใส่ในเว็บไม่ได้ Worker ถือรหัสแทน + ตรวจว่าผู้ใช้ได้รับอนุมัติ + เปิด CORS ให้เว็บเรา", {})],
+    [("ทำไมใช้ Apps Script?  ", {"bold": True, "color": CORAL}), ("อ่าน Drive ด้วยสิทธิ์บัญชีเราได้เลย ไม่ต้องทำโฟลเดอร์ public และใช้ MailApp ส่งรหัส OTP ได้ฟรี", {})],
+], size=13.5, line_spacing=1.25, space_after=4)
+page_no(s, n)
+notes(s, "เล่าตามลูกศร · เว็บถามข้อมูลใหม่ทุก 1 นาที และทันทีเมื่อกลับมาที่หน้า · ไฟล์วันที่ผ่านไปแล้วขอด้วย ?v=<เวลาแก้ไข> "
+         "Worker และ browser จำไว้ถาวร โหลดใหม่เฉพาะไฟล์วันนี้ · Online = ไฟล์ถูกแก้ภายใน 25 นาที")
+
+# ---- New web files ----
+s = prs.slides.add_slide(BLANK); n += 1
+background(s, WHITE)
+title(s, "ไฟล์หน้าเว็บที่เพิ่มใน v2.0", "หน้าที่ · ทำเพื่ออะไร")
+newfiles = [
+    ("js/site.js", "ส่วนที่ทุกหน้าใช้: เวอร์ชัน (APP_VERSION), ภาษา, โหมดมืด, นาฬิกา", "แก้ที่เดียวมีผลทุกหน้า"),
+    ("js/espdecoder.js", "ตาราง 187 ฟิลด์ + ถอด frame 228 byte เป็นค่า", "เปิด CSV ดิบจาก ESP32 ได้เหมือนไฟล์ .log"),
+    ("js/config.js", "WORKER_URL, ปรับปรุงทุก 1 นาที, Offline 25 นาที, ช่วงวัน", "รวมค่าตั้งของ Monitoring ไว้ที่เดียว"),
+    ("js/monitor-api.js", "ดึงรายการเครื่อง / ไฟล์, จำไฟล์, สถานะ 3 แบบ, ข้อมูลจำลอง", "จุดเดียวที่คุยเรื่องข้อมูล Data Logger"),
+    ("js/auth.js", "คุยกับ Worker: ขอรหัส, ยืนยัน, ขอสิทธิ์, API แอดมิน, token", "แนบ token อัตโนมัติทุกคำขอ"),
+    ("js/login-ui.js", "หน้าจอเข้าสู่ระบบ / ขอสิทธิ์ / รออนุมัติ + แถบผู้ใช้", "ทุกหน้าที่ต้อง login ใช้ตัวเดียวกัน"),
+    ("js/monitor.js", "การ์ด Data Logger + กราฟย่อ + ค้นหา / กรอง", "ภาพรวมทุกเครื่องในหน้าเดียว"),
+    ("js/live.js", "analyze.html?device=: โหลดไฟล์ช่วงวัน → loadFile(keepView)", "กราฟเต็มที่ปรับปรุงเองโดยคงซูม / โน้ต"),
+    ("js/admin.js", "แท็บสถานะผู้ใช้ + ปุ่มอนุมัติ / ปฏิเสธ / ถอนสิทธิ์ / ลบ", "แอดมินจัดการสิทธิ์ได้จากหน้าเว็บ"),
+    ("tools/make-esp-sample.py", "สร้าง CSV ดิบปลอม (DEMO01) จากข้อมูลตัวอย่าง", "ทดสอบตัวถอดรหัส + โหมด ?demo"),
+]
+for i, (f, d, why) in enumerate(newfiles):
+    col, row = i % 2, i // 2
+    x = 0.6 + col * 6.15
+    y = 1.85 + row * 1.0
+    box(s, x, y, 5.95, 0.9, CORAL_SOFT if f in ("js/espdecoder.js", "js/auth.js") else ICE2)
+    text(s, x + 0.25, y + 0.08, 5.5, 0.3, f, size=13.5, bold=True, color=TEAL_DARK, font=MONO)
+    text(s, x + 0.25, y + 0.38, 5.5, 0.28, d, size=11.5, color=INK)
+    text(s, x + 0.25, y + 0.62, 5.5, 0.25, "→ " + why, size=11, color=MUTED, italic=True)
+page_no(s, n)
+notes(s, "ไฟล์เดิม (main.js, chart.js, parser.worker.js …) ใช้ต่อทั้งหมด · parser.worker.js เพิ่ม espAdapter() ที่แปลงแถว ESP32 "
+         "เป็นแถวแบบ log ก่อนส่งให้ parser เดิม · main.js เพิ่ม loadFile(…, { keepView }) ให้หน้ากราฟของเครื่องอัปเดตโดยไม่รีเซ็ตมุมมอง")
+
+# ---- ESP32 decoder ----
+s = prs.slides.add_slide(BLANK); n += 1
+background(s, WHITE)
+title(s, "ถอดรหัส CSV ดิบจาก ESP32", "js/espdecoder.js + espAdapter() ใน parser.worker.js — เปิดในหน้าวิเคราะห์ไฟล์ Log ได้ด้วย")
+code(s, 0.6, 1.9, 12.1, 1.2, [
+    [("timestamp,raw_hex", CODE_KEY)],
+    # ตัวอย่างจากไฟล์ปลอม samples/esp32/ (DEMO01) — ห้ามใช้ข้อมูลจาก log จริง
+    [("2026-07-22 00:00:06,", CODE_FG), ("3D 00 36 01 1D 0C 62 0E 00 06 FA …", RGBColor(0xFF, 0xC8, 0x7A)), ("  (228 byte)", RGBColor(0x8B, 0x98, 0xA9))],
+], size=14)
+types = [("u8", "b[o]", "สถานะ, enum, timer 8 bit"), ("s8", "int8(b[o])", "Cabin[n].display มีเครื่องหมาย (234 → −22)"),
+         ("u16le", "b[o] + b[o+1]×256", "timer 16 bit, fan, flap"), ("s16be", "int16(b[o]×256 + b[o+1])", "อุณหภูมิ (ค่าดิบ ไม่หาร)"),
+         ("bit", "(b[o] >> n) & 1", "ธง เช่น doorsClosed, errHighTemp")]
+for i, (k, f, u) in enumerate(types):
+    y = 3.3 + i * 0.52
+    text(s, 0.6, y, 1.2, 0.4, k, size=14, bold=True, color=CORAL, font=MONO)
+    text(s, 1.8, y, 3.6, 0.4, f, size=13, color=INK, font=MONO)
+    text(s, 5.4, y, 3.4, 0.4, u, size=13, color=MUTED)
+box(s, 9.0, 3.25, 3.7, 2.65, ICE)
+text(s, 9.25, 3.4, 3.3, 2.4, [
+    [("กฎสำคัญ", {"bold": True, "color": TEAL_DARK, "size": 15})],
+    "• WorkMode อยู่ offset 226 แต่ลำดับคอลัมน์ที่ 85",
+    "• byte ไม่ครบ / ไม่ใช่ hex → ข้ามแถว ห้ามเติม 0",
+    "• เวลาในไฟล์ = เวลาไทย",
+    "• Stock.No เป็น 0 ทั้งหมด → 0000000000-V99R24",
+], size=12.5, line_spacing=1.25, space_after=3)
+box(s, 0.6, 6.1, 12.1, 0.7, CORAL_SOFT)
+text(s, 0.9, 6.25, 11.5, 0.45, [[("ตรวจแล้ว:  ", {"bold": True, "color": CORAL}),
+     ("ตรงกับสคริปต์ Python อ้างอิงทุกฟิลด์ทุกแถว · หัวตาราง 187 ฟิลด์ตรงกับ log จริงของโปรแกรม PC ทุก byte", {})]], size=13.5)
+page_no(s, n)
+notes(s, "espAdapter แปลงแถวแรก timestamp,raw_hex เป็น header [Timestamp + 187 ชื่อ] แล้วแต่ละแถวเป็นค่าที่ถอดแล้ว "
+         "parser / กราฟ / Real data ใช้ของเดิมทั้งหมด · enum 16 ฟิลด์ยังเป็นเลขดิบ (ผู้ใช้จะเพิ่มตารางข้อความภายหลัง)")
+
+# ---- Monitoring card ----
+s = prs.slides.add_slide(BLANK); n += 1
+background(s, WHITE)
+title(s, "หน้าติดตามสถานะ: การ์ด 1 เครื่อง", "monitor.html — ชี้เมาส์ / แตะบนกราฟย่อ = ค่าในการ์ดเปลี่ยนเป็นค่า ณ เวลานั้น")
+parts = [("ชื่อ + สถานะ", "Online / ไม่มีข้อมูลจากตู้ / Offline"), ("ซอฟต์แวร์ + ข้อมูล ณ", "เวลาของแถวที่แสดง"),
+         ("กราฟย่อ 24 ชม.", "เฉพาะอุณหภูมิ สูง 200 px"), ("อุณหภูมิ 5 ตัว", "TC / F / FD / R / RD-sensor"),
+         ("แผงควบคุม", "R / F set, Shabbat, ECO, Ice making"), ("ท้ายการ์ด", "แจ้งเตือน · ปรับปรุงล่าสุด · ดูกราฟเต็ม")]
+for i, (h, d) in enumerate(parts):
+    y = 1.9 + i * 0.78
+    circle_num(s, 0.65, y + 0.05, 0.48, str(i + 1), fill=TEAL, size=14)
+    text(s, 1.3, y, 3.4, 0.35, h, size=15.5, bold=True, color=NIGHT)
+    text(s, 1.3, y + 0.36, 4.5, 0.35, d, size=12.5, color=MUTED)
+states = [("Online", RGBColor(0x1A, 0x8F, 0x3C), "ไฟล์ใน Drive ถูกปรับปรุงภายใน 25 นาที"),
+          ("Online · ไม่มีข้อมูลจากตู้", RGBColor(0xB0, 0x70, 0x00), "ไฟล์ยังถูกปรับปรุง แต่แถวล่าสุดเก่ากว่าเกิน 25 นาที\n= ESP32 ต่อเน็ตได้ แต่ไม่ได้ข้อมูลจากตู้"),
+          ("Offline", MUTED, "ไฟล์ไม่ถูกปรับปรุงเกิน 25 นาที")]
+text(s, 6.6, 1.9, 6.0, 0.4, "สถานะของเครื่อง (deviceStatus)", size=16, bold=True, color=NIGHT)
+for i, (h, c, d) in enumerate(states):
+    y = 2.45 + i * 1.15
+    box(s, 6.6, y, 6.1, 1.0, ICE2)
+    text(s, 6.85, y + 0.12, 5.6, 0.35, "● " + h, size=15, bold=True, color=c)
+    text(s, 6.85, y + 0.48, 5.6, 0.5, d, size=12, color=INK, line_spacing=1.1)
+box(s, 6.6, 5.95, 6.1, 0.8, CORAL_SOFT)
+text(s, 6.85, 6.07, 5.6, 0.6, [[("แจ้งเตือน  ", {"bold": True, "color": CORAL}),
+     ("errHighTemp ≠ 0 = อุณหภูมิสูง · *.Err ≠ 0 = เซนเซอร์ผิดปกติ (จากแถวล่าสุด)", {})]], size=12.5, line_spacing=1.15)
+page_no(s, n)
+notes(s, "ชื่อย่อเซนเซอร์ใช้เฉพาะการ์ด (กราฟเต็มใช้ชื่อเต็ม) · แผงควบคุมดึงรายการกลุ่ม CONTROL PANEL ใน STATUS_ITEMS อัตโนมัติ "
+         "· ปรับปรุงทุก 1 นาที + ทันทีเมื่อกลับมาที่หน้า ไอคอน ↻ หมุนระหว่างโหลด · กดการ์ด = analyze.html?device=<ชื่อ>")
+
+# ---- Membership ----
+s = prs.slides.add_slide(BLANK); n += 1
+background(s, WHITE)
+title(s, "ระบบสมาชิก (login + อนุมัติ)", "ใครก็สมัครได้ — แอดมินคนเดียวเป็นผู้อนุมัติ · คนไม่ได้รับอนุมัติไม่ได้ข้อมูลเลย")
+mflow = [("กรอกอีเมล", "Worker ส่งรหัส\n6 หลักทางอีเมล"), ("ใส่รหัส", "login สำเร็จ\nค้างไว้ 30 วัน"),
+         ("ขอสิทธิ์", "ชื่อ / แผนก / เหตุผล\n→ อีเมลแจ้งแอดมิน"), ("แอดมินอนุมัติ", "admin.html\n→ อีเมลแจ้งผู้ใช้"),
+         ("ใช้งาน", "เห็นการ์ด + กราฟ\nข้อมูลจริง")]
+bw, gap = 2.15, 0.35
+for i, (h, d) in enumerate(mflow):
+    x = 0.6 + i * (bw + gap)
+    box(s, x, 1.95, bw, 2.1, NIGHT if i == 3 else ICE)
+    circle_num(s, x + 0.2, 2.1, 0.5, str(i + 1), size=14)
+    text(s, x + 0.2, 2.72, bw - 0.4, 0.4, h, size=16, bold=True, color=WHITE if i == 3 else NIGHT)
+    text(s, x + 0.2, 3.15, bw - 0.4, 0.85, d, size=12.5, color=CODE_KEY if i == 3 else MUTED, line_spacing=1.15)
+    if i < len(mflow) - 1:
+        arrow(s, x + bw + 0.05, 2.9, gap - 0.1, 0.3, fill=CORAL)
+facts = [("รหัส OTP", "ใช้ได้ 10 นาที · ใส่ผิดได้ 5 ครั้ง · ขอได้ 5 ครั้ง/ชม./อีเมล"),
+         ("ถอนสิทธิ์", "มีผลภายใน ~1 นาที แม้ยัง login ค้างอยู่ · ปฏิเสธ/ถอนแล้วขอใหม่ได้"),
+         ("แอดมิน", "= อีเมลใน ADMIN_EMAIL (Worker secret) ได้สิทธิ์เสมอ ไม่ต้องอนุมัติ"),
+         ("ตรวจที่ไหน", "Worker ตรวจทุกคำขอ — หน้าเว็บแค่แสดงผล รู้ URL ก็ไม่ได้ข้อมูล")]
+for i, (h, d) in enumerate(facts):
+    col, row = i % 2, i // 2
+    x = 0.6 + col * 6.15
+    y = 4.35 + row * 1.15
+    box(s, x, y, 5.95, 1.0, ICE2)
+    text(s, x + 0.25, y + 0.12, 5.5, 0.35, h, size=14.5, bold=True, color=TEAL_DARK)
+    text(s, x + 0.25, y + 0.5, 5.5, 0.45, d, size=12.5, color=INK)
+page_no(s, n)
+notes(s, "token เก็บใน localStorage (ต่อเครื่อง/browser) อายุ 30 วัน · ออกจากระบบหรือล้างข้อมูล browser ต้อง login ใหม่ "
+         "· โควต้าอีเมล Apps Script ~100 ฉบับ/วัน (บัญชี Gmail) พอสำหรับผู้ใช้ ~10 คน")
+
+# ---- Server files & secrets ----
+s = prs.slides.add_slide(BLANK); n += 1
+background(s, WHITE)
+title(s, "โค้ดฝั่งเซิร์ฟเวอร์ + ค่าลับอยู่ที่ไหน", "อยู่ใน repo เพื่อเก็บประวัติ แต่ต้อง deploy เอง — คู่มือ docs/MONITORING-SETUP.md")
+srv = [("server/apps-script/Code.gs", "Google Apps Script (Web App)",
+        ["?action=index → รายการเครื่อง + ไฟล์ 62 วัน", "?action=file → เนื้อไฟล์ (เฉพาะในโฟลเดอร์)", "POST mail → ส่งรหัส / แจ้งแอดมิน"]),
+       ("server/worker/worker.js", "Cloudflare Worker",
+        ["/auth/… → login, ขอสิทธิ์", "/index, /file → ข้อมูล (อนุมัติแล้วเท่านั้น)", "/admin/users → จัดการผู้ใช้ (แอดมิน)"])]
+for i, (f, kind, items) in enumerate(srv):
+    y = 1.9 + i * 1.95
+    box(s, 0.6, y, 6.0, 1.8, ICE2)
+    text(s, 0.85, y + 0.12, 5.6, 0.35, f, size=14, bold=True, color=TEAL_DARK, font=MONO)
+    text(s, 0.85, y + 0.48, 5.6, 0.3, kind, size=12.5, color=MUTED, italic=True)
+    text(s, 0.85, y + 0.82, 5.6, 0.95, items, size=12.5, color=INK, line_spacing=1.15)
+sec = [("SECRET · FOLDER_ID", "Apps Script → Script Properties"),
+       ("APPS_SCRIPT_KEY · SESSION_SECRET · ADMIN_EMAIL", "Worker → Variables and Secrets"),
+       ("APPS_SCRIPT_URL · KV USERS", "Worker → Variables / Bindings"),
+       ("WORKER_URL", "js/config.js (เปิดเผยได้)")]
+text(s, 6.9, 1.9, 5.8, 0.4, "ค่าตั้ง / ค่าลับ → เก็บที่", size=16, bold=True, color=NIGHT)
+for i, (k, where) in enumerate(sec):
+    y = 2.4 + i * 0.85
+    box(s, 6.9, y, 5.8, 0.75, CORAL_SOFT if i < 2 else ICE2)
+    text(s, 7.1, y + 0.08, 5.4, 0.3, k, size=12, bold=True, color=CORAL if i < 2 else TEAL_DARK, font=MONO)
+    text(s, 7.1, y + 0.4, 5.4, 0.3, where, size=12, color=INK)
+box(s, 0.6, 5.95, 12.1, 0.85, NIGHT)
+text(s, 0.9, 6.08, 11.5, 0.6, [[("แก้ไฟล์ใน server/ แล้วต้อง deploy เอง:  ", {"bold": True, "color": CORAL}),
+     ("Code.gs → Deploy → Manage deployments → New version · worker.js → Edit code → วาง → Deploy · ห้ามใส่ค่าลับในไฟล์", {"color": WHITE})]],
+     size=13, line_spacing=1.2)
+page_no(s, n)
+notes(s, "repo เป็น Public: ค่าลับทุกตัวอยู่ในหน้าตั้งค่าของ Google / Cloudflare เท่านั้น · WORKER_URL เปิดเผยได้เพราะป้องกันด้วย login "
+         "· ถ้าสงสัยว่ารหัสลับหลุด เปลี่ยนตามหัวข้อท้ายคู่มือ (SESSION_SECRET ใหม่ = ทุกคนต้อง login ใหม่)")
+
 # ---------------- 7. Section divider ----------------
 s = prs.slides.add_slide(BLANK); n += 1
 background(s, NIGHT)
@@ -325,14 +543,14 @@ for i, (a, b) in enumerate(need):
     text(s, 0.9, y + 0.12, 5.0, 0.3, a, size=16, bold=True, color=NIGHT)
     text(s, 0.9, y + 0.45, 5.0, 0.3, b, size=13, color=MUTED)
 code(s, 6.4, 1.95, 6.3, 1.2, [[("$ ", CODE_KEY), ("python -m http.server 8000", CODE_FG)]], size=16)
-steps8 = ["เปิด http://localhost:8000", "กด \"ลองด้วยไฟล์ตัวอย่าง\" → เห็นกราฟครบ", "F12 → Console ต้องไม่มีสีแดง"]
+steps8 = ["เปิด http://localhost:8000", "กด \"ทดลองใช้งานด้วยไฟล์ตัวอย่าง\" → เห็นกราฟครบ", "F12 → Console ต้องไม่มีสีแดง"]
 for i, t in enumerate(steps8):
     y = 3.4 + i * 0.62
     circle_num(s, 6.45, y, 0.42, str(i + 1), size=13)
     text(s, 7.05, y + 0.04, 5.6, 0.4, t, size=15)
 box(s, 6.4, 5.4, 6.3, 1.25, CORAL_SOFT)
 text(s, 6.65, 5.55, 5.9, 1.0, [
-    [("ห้ามดับเบิลคลิก index.html  ", {"bold": True, "color": CORAL}), ("(file://) — module / Worker ใช้ไม่ได้", {})],
+    [("ห้ามดับเบิลคลิกไฟล์ .html  ", {"bold": True, "color": CORAL}), ("(file://) — module / Worker ใช้ไม่ได้", {})],
     [("แก้แล้วไม่เปลี่ยน?  ", {"bold": True, "color": CORAL}), ("กด Ctrl+F5 (browser จำไฟล์เก่า)", {})],
 ], size=14, line_spacing=1.25, space_after=4)
 page_no(s, n)
@@ -419,8 +637,8 @@ background(s, WHITE)
 title(s, "ทดสอบก่อนปล่อย", "ทำทุกข้อก่อน push ทุกครั้ง — เริ่มด้วย Ctrl+F5")
 groups = [("ไฟล์", ["sample .log .csv .xlsx", "ไฟล์จริงใน samples/private/", "big.log 80 MB ไม่ค้าง", "samples/broken ขึ้น error ที่อ่านเข้าใจ"]),
           ("หน้าจอ", ["จอแนวนอน: ตารางรอบกราฟ ในจอเดียว", "จอแนวตั้ง / มือถือ ไม่มีแถบเลื่อนแนวนอน", "สลับ TH/EN", "สลับสว่าง/มืด"]),
-          ("เมาส์", ["ลูกกลิ้ง zoom", "ลากขวาเลื่อน", "ลากซ้ายเลือกช่วง + ป้ายเวลา", "ดับเบิลคลิกดูทั้งหมด"]),
-          ("สุดท้าย", ["F12 → Console ไม่มี error", "Min/Max/Avg เปลี่ยนตามช่วง", "ค่า ณ เคอร์เซอร์ถูก"])]
+          ("เมาส์", ["ลูกกลิ้ง zoom · ลากขวาเลื่อน", "ลากซ้ายเลือกช่วง + ป้ายเวลา", "ดับเบิลคลิก = Real data", "ปุ่ม \"ดูทั้งหมด\""]),
+          ("Monitoring", ["monitor.html?demo ครบ 3 สถานะ", "login จริง → การ์ดข้อมูลจริง", "กดการ์ด → กราฟเต็ม", "F12 → Console ไม่มี error"])]
 for i, (h, items) in enumerate(groups):
     x = 0.6 + i * 3.08
     box(s, x, 1.95, 2.85, 4.75, ICE2)
@@ -433,16 +651,16 @@ for i, (h, items) in enumerate(groups):
         text(s, x + 0.7, y, 2.0, 0.85, it, size=13, color=INK, line_spacing=1.15)
 page_no(s, n)
 notes(s, "เช็กลิสต์เต็มอยู่ใน GUIDE.md ข้อ 6 · big.log สร้างด้วย python tools/make-sample.py --big "
-         "· ระหว่างโหลดไฟล์ใหญ่ลองเลื่อนหน้า/ขยับเมาส์ ต้องไม่ค้าง")
+         "· ระหว่างโหลดไฟล์ใหญ่ลองเลื่อนหน้า/ขยับเมาส์ ต้องไม่ค้าง · ระบบสมาชิกทดสอบครบรอบ: สมัคร → อนุมัติ → ถอนสิทธิ์")
 
 # ---------------- 13. Release ----------------
 s = prs.slides.add_slide(BLANK); n += 1
 background(s, WHITE)
 title(s, "ปล่อยเวอร์ชันใหม่ (Release)", "เว็บจริงอัปเดตจาก branch main — commit อย่างเดียวยังไม่ขึ้นเว็บ ต้อง push")
-rel = [("เปลี่ยนเวอร์ชัน", "APP_VERSION ใน main.js\n+ บรรทัด \"ตอนนี้ x.y\" ใน CLAUDE.md"),
+rel = [("เปลี่ยนเวอร์ชัน", "APP_VERSION ใน site.js\n+ บรรทัด \"ตอนนี้ x.y\" ใน CLAUDE.md"),
        ("ทดสอบ", "ตามเช็กลิสต์ครบทุกข้อ"),
        ("git status", "ห้ามมี samples/private/\nlog / xlsx / csv จริง, ~$…"),
-       ("commit", "git commit -m \"Release 1.8: …\""),
+       ("commit", "git commit -m \"Release 2.0: …\""),
        ("push", "git push origin main"),
        ("ตรวจเว็บจริง", "รอ ~1 นาที → Ctrl+F5\nป้ายหัวเว็บเป็นเวอร์ชันใหม่")]
 for i, (h, d) in enumerate(rel):
@@ -453,8 +671,10 @@ for i, (h, d) in enumerate(rel):
     circle_num(s, x + 0.25, y + 0.25, 0.55, str(i + 1), size=16)
     text(s, x + 0.95, y + 0.3, 2.8, 0.45, h, size=17, bold=True, color=NIGHT, font=MONO if i in (2, 3, 4) else FONT)
     text(s, x + 0.25, y + 0.95, 3.4, 0.85, d, size=13, color=MUTED, line_spacing=1.2)
-text(s, 0.6, 6.3, 12.1, 0.45, [[("repo เป็น Public  ", {"bold": True, "color": CORAL}),
-                               ("ขั้นที่ 3 ดูด้วยตาทุกครั้ง แม้ .gitignore จะกันไว้แล้ว", {})]], size=15)
+text(s, 0.6, 6.2, 12.1, 0.7, [[("repo เป็น Public  ", {"bold": True, "color": CORAL}),
+                               ("ขั้นที่ 3 ดูด้วยตาทุกครั้ง แม้ .gitignore จะกันไว้แล้ว", {})],
+                              [("แก้ server/  ", {"bold": True, "color": CORAL}),
+                               ("push อย่างเดียวไม่พอ — ต้อง deploy Code.gs / worker.js เองด้วย", {})]], size=14, line_spacing=1.2)
 page_no(s, n)
 notes(s, "ขั้นที่ 3 สำคัญที่สุด: repo เป็น Public ไฟล์ log จริงหลุดขึ้นไปแล้วเอาคืนยาก "
          ".gitignore กัน *.log *.xlsx *.csv ~$* และ samples/private/ ไว้แล้ว แต่ต้องดู git status ทุกครั้ง "
@@ -469,19 +689,21 @@ tr = [("หน้าเว็บว่าง", "เปิดด้วยดั�
       ("ทุกแถวถูกข้าม วันที่ผิด", "รูปแบบวันที่ใหม่", "แก้ parseDateParts()"),
       ("\"ไม่มีคอลัมน์ในไฟล์\"", "firmware รุ่นนี้ไม่มีคอลัมน์", "ปกติ — เช็กชื่อตัวพิมพ์เล็ก/ใหญ่"),
       ("รายการขึ้น N/A เอง", "กฎ \"ไม่มีชิ้นส่วนในตู้\"", "ตั้งใจ — ดูกฎใน CLAUDE.md"),
-      ("ไฟล์ใหญ่แล้วค้าง", "แปลงข้อมูลแบบช้า", "ใช้ loop ห้าม Array.from(arr, fn)")]
+      ("ไฟล์ใหญ่แล้วค้าง", "แปลงข้อมูลแบบช้า", "ใช้ loop ห้าม Array.from(arr, fn)"),
+      ("ไม่ได้รับรหัส OTP", "อยู่ใน Spam / โควต้าอีเมลหมด", "ดู Spam · รอวันถัดไป"),
+      ("Monitoring: เชื่อมต่อไม่สำเร็จ", "Worker / Apps Script ตั้งค่าไม่ตรง", "ทดสอบตามคู่มือขั้นที่ 3")]
 hdr_y = 1.9
 for j, (h, x, w) in enumerate([("อาการ", 0.6, 4.0), ("สาเหตุ", 4.75, 3.9), ("วิธีแก้", 8.8, 3.9)]):
     box(s, x, hdr_y, w, 0.55, NIGHT, radius=False)
     text(s, x + 0.25, hdr_y + 0.12, w - 0.4, 0.35, h, size=15, bold=True, color=WHITE)
 for i, row in enumerate(tr):
-    y = 2.55 + i * 0.75
+    y = 2.55 + i * 0.56
     for j, (x, w) in enumerate([(0.6, 4.0), (4.75, 3.9), (8.8, 3.9)]):
-        box(s, x, y, w, 0.68, ICE2 if i % 2 == 0 else WHITE, radius=False, line=ICE)
-        text(s, x + 0.25, y + 0.18, w - 0.4, 0.4, row[j], size=14.5,
+        box(s, x, y, w, 0.53, ICE2 if i % 2 == 0 else WHITE, radius=False, line=ICE)
+        text(s, x + 0.25, y + 0.12, w - 0.4, 0.4, row[j], size=13.5,
              bold=(j == 0), color=NIGHT if j == 0 else (TEAL_DARK if j == 2 else INK))
 page_no(s, n)
-notes(s, "ตารางเต็มอยู่ใน GUIDE.md ข้อ 8 · N/A ที่ขึ้นเองส่วนใหญ่ถูกต้อง เช่น ตู้ไม่มี Ice maker, heater สั่งงานเป็น 0 ทั้งไฟล์")
+notes(s, "ตารางเต็มอยู่ใน GUIDE.md ข้อ 8 และ docs/MONITORING-SETUP.md · N/A ที่ขึ้นเองส่วนใหญ่ถูกต้อง เช่น ตู้ไม่มี Ice maker, heater สั่งงานเป็น 0 ทั้งไฟล์")
 
 # ---------------- 15. Closing rules ----------------
 s = prs.slides.add_slide(BLANK); n += 1
@@ -490,14 +712,15 @@ text(s, 0.8, 0.7, 11.5, 0.9, "กฎที่ต้องจำ", size=40, bold=
 rules = [("หาคอลัมน์ด้วยชื่อเสมอ", "ห้าม hard-code ตำแหน่งคอลัมน์"),
          ("ค่าคงที่อยู่ที่ logformat.js ที่เดียว", "ชื่อคอลัมน์ สี ตำแหน่ง"),
          ("ไฟล์ตัวอย่างต้องมีทุกเส้น", "เพิ่มรายการใหม่ → แก้ make-sample.py ด้วย"),
-         ("ห้าม commit ข้อมูลจริง", "repo เป็น Public — ดู git status ก่อน push"),
+         ("ห้าม commit ข้อมูลจริง / ค่าลับ", "repo เป็น Public — ดู git status ก่อน push · ค่าลับอยู่ใน Google / Cloudflare"),
+         ("ส่วนที่ใช้ร่วมกันอยู่ที่เดียว", "site.js · login-ui.js · หน้ากราฟเดียว (analyze.html)"),
          ("CLAUDE.md คือสเปกหลัก", "กฎใหม่ทุกข้อต้องลงที่นี่")]
 for i, (h, d) in enumerate(rules):
-    y = 1.9 + i * 0.95
+    y = 1.75 + i * 0.83
     circle_num(s, 0.85, y + 0.05, 0.55, str(i + 1), size=16)
     text(s, 1.7, y + 0.02, 10.5, 0.4, h, size=20, bold=True, color=WHITE)
     text(s, 1.7, y + 0.45, 10.5, 0.4, d, size=14, color=CODE_KEY)
-text(s, 0.8, 6.8, 11.8, 0.4, "อ่านต่อ: docs/WORKFLOW.md · docs/GUIDE.md · CLAUDE.md", size=13, color=RGBColor(0xB8, 0xC4, 0xD4))
+text(s, 0.8, 6.8, 11.8, 0.4, "อ่านต่อ: docs/WORKFLOW.md · docs/GUIDE.md · docs/MONITORING-SETUP.md · CLAUDE.md", size=13, color=RGBColor(0xB8, 0xC4, 0xD4))
 notes(s, "สรุป 5 ข้อที่ต้องจำ แล้วชี้ไปที่เอกสารฉบับเต็มใน repo")
 
 prs.save(OUT)

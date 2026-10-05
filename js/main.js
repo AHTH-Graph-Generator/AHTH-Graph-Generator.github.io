@@ -1,17 +1,15 @@
 // ============================================================
-// main.js — จุดเริ่มต้นของหน้าเว็บ ผูก UI กับ parser / chart / stats
+// main.js — จุดเริ่มต้นของหน้า Log analyzer (analyze.html) ผูก UI กับ parser / chart / stats
 // ============================================================
 
 import { SENSORS, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN, VALVE_POSITIONS, DAMPER_OPEN, HEATER_STATE, POWER_COUNTER, formatWorkMode, formatDateTime, toInputValue, fromInputValue,
   FILE_TIME_ZONE, listTimeZones, setDisplayTimeZone, getDisplayTimeZone, zoneOffsetLabel } from "./logformat.js";
 import { indexRange, computeStats } from "./stats.js";
 import { createChart, toPlotValues } from "./chart.js";
-import { t, getLang, initLanguage, onLanguageChange } from "./i18n.js";
-import { initTheme, onThemeChange } from "./theme.js";
+import { t, getLang, onLanguageChange } from "./i18n.js";
+import { onThemeChange } from "./theme.js";
+import { initSite } from "./site.js";
 import { openRawData, initRawData, refreshRawTimes } from "./rawdata.js";
-
-// เวอร์ชันที่แสดงบนหัวเว็บ — เปลี่ยนตรงนี้ที่เดียวทุกครั้งที่ release
-const APP_VERSION = "1.9";
 
 const SAMPLE_URL = "samples/sample.log";
 
@@ -40,6 +38,8 @@ const MSG = {
   reason_columns: { th: "คอลัมน์ไม่ครบ ({detail})", en: "missing columns ({detail})" },
   reason_date:    { th: "วันที่/เวลาผิดรูปแบบ \"{detail}\"", en: "bad date/time \"{detail}\"" },
   reason_value:   { th: "ค่าไม่ใช่ตัวเลขในคอลัมน์ {detail}", en: "non-numeric value in {detail}" },
+  reason_frame:   { th: "ข้อมูล ESP32 ไม่ครบ 228 byte ({detail})", en: "incomplete ESP32 frame ({detail} bytes)" },
+  reason_hex:     { th: "ข้อมูล ESP32 ไม่ใช่เลขฐาน 16 \"{detail}\"", en: "invalid hex in ESP32 frame \"{detail}\"" },
   reason_timeBackwards: { th: "เวลาย้อนกลับ \"{detail}\"", en: "time goes backwards \"{detail}\"" },
   lineN:          { th: "บรรทัด {line}", en: "line {line}" },
   noSensorData:   { th: "(0 ทั้งไฟล์)", en: "(all zero)" },
@@ -57,6 +57,7 @@ const MSG = {
   colMax:         { th: "Max", en: "Max" },
   colAvg:         { th: "เฉลี่ย", en: "Average" },
   scopeView:      { th: "Min / Max / เฉลี่ย ของช่วงที่แสดงบนกราฟ: {from} → {to} (°C)", en: "Min / Max / Average of the visible range: {from} → {to} (°C)" },
+  espSource:      { th: "ESP32 Data Logger", en: "ESP32 Data Logger" }, // CSV ดิบไม่มีชื่อ INI
   fileZone:       { th: "เวลาในไฟล์", en: "file time" },
   tzNotFound:     { th: "ไม่พบ time zone นี้", en: "No matching time zone" },
   scopeSelection: { th: "Min / Max / เฉลี่ย ของช่วงที่เลือก: {from} → {to} ({dur}) (°C)", en: "Min / Max / Average of the selected range: {from} → {to} ({dur}) (°C)" },
@@ -157,14 +158,16 @@ function showProgress(pct, msg = MSG.reading) {
 const hideProgress = () => { el.progress.hidden = true; };
 
 // ---------- โหลดไฟล์ ----------
-export function loadFile(file, fileName = file.name) {
+// options.keepView (หน้า device อัปเดตข้อมูลใหม่): คงช่วงที่ซูม / ช่วงที่เลือก / โน้ต / เส้นที่เปิด-ปิด และไม่แสดง progress
+export function loadFile(file, fileName = file.name, options = {}) {
+  const keep = options.keepView && loaded && chart ? captureView() : null;
   loadToken++;
   openedFile = file;
   if (worker) worker.terminate();
   const notes = [];
   if (fileName && !/\.(log|txt|csv|xlsx|xls)$/i.test(fileName)) notes.push({ msg: MSG.wrongType, params: { name: fileName } });
   showMessage("warn", notes);
-  showProgress(0);
+  if (!keep) showProgress(0);
   setBusy(true);
 
   try {
@@ -174,8 +177,8 @@ export function loadFile(file, fileName = file.name) {
     return;
   }
   worker.onmessage = ({ data }) => {
-    if (data.type === "progress") showProgress(data.total ? (data.loaded / data.total) * 100 : 0);
-    else if (data.type === "done") onParsed(fileName, data.result, notes);
+    if (data.type === "progress") { if (!keep) showProgress(data.total ? (data.loaded / data.total) * 100 : 0); }
+    else if (data.type === "done") onParsed(fileName, data.result, notes, keep);
     else if (data.type === "error") onParseError(data.code, data.params);
   };
   worker.onerror = (e) => onParseError("readFailed", { message: e.message || "worker error" });
@@ -202,12 +205,39 @@ function onParseError(code, params) {
   showMessage("error", [{ msg, params }]);
 }
 
-function onParsed(fileName, result, notes) {
+// สถานะการดูกราฟปัจจุบัน — ใช้คืนค่าหลังโหลดข้อมูลชุดใหม่ของ device เดิม
+function captureView() {
+  const times = loaded.result.times;
+  return {
+    range: chart.getRange(),
+    dataEnd: times[times.length - 1],
+    selection: chart.getSelection(),
+    notes: loaded.notes,
+    shows: new Map(loaded.items.map((item) => [item.meta.key, item.show])),
+  };
+}
+
+// ช่วงที่แสดงหลังได้ข้อมูลใหม่: ถ้าเดิมดูถึงท้ายข้อมูลอยู่ (ติดตามข้อมูลล่าสุด) → เลื่อนตามข้อมูลใหม่ ช่วงกว้างเท่าเดิม
+function restoreView(keep) {
+  const times = loaded.result.times;
+  const newEnd = times[times.length - 1];
+  let [min, max] = keep.range;
+  if (max >= keep.dataEnd - 1 && newEnd > keep.dataEnd) {
+    const span = max - min;
+    max = newEnd;
+    min = Math.max(times[0], max - span);
+  }
+  chart.setRange(min, max);
+  if (keep.selection) chart.setSelection(keep.selection);
+}
+
+function onParsed(fileName, result, notes, keep = null) {
   finishWorker();
-  showProgress(100, MSG.preparing);
+  if (!keep) showProgress(100, MSG.preparing);
 
   const items = [...notes];
-  if (result.metadataMissing) items.push({ msg: MSG.metadataMissing });
+  // CSV ดิบจาก ESP32 ไม่มีบรรทัด metadata อยู่แล้ว — ไม่ต้องเตือน
+  if (result.metadataMissing && result.format !== "esp32") items.push({ msg: MSG.metadataMissing });
   if (result.skippedCount > 0) items.push(...skippedMessages(result));
   if (result.missing.length) {
     items.push({ msg: MSG.missingCols, params: { cols: result.missing.join(", ") } });
@@ -222,8 +252,10 @@ function onParsed(fileName, result, notes) {
   (async () => {
     await nextTask();
     if (token !== loadToken) return;
-    loaded = { fileName, file: openedFile, result, items: buildItems(result), notes: { strokes: [] } };
-    drawState.mode = null; // ไฟล์ใหม่ = โน้ตใหม่ ปิดโหมดวาด
+    loaded = { fileName, file: openedFile, result, items: buildItems(result), notes: keep ? keep.notes : { strokes: [] } };
+    // อัปเดตข้อมูล device เดิม → คงเส้นที่ผู้ใช้เปิด/ปิดไว้
+    if (keep) loaded.items.forEach((item) => { if (keep.shows.has(item.meta.key)) item.show = keep.shows.get(item.meta.key); });
+    if (!keep) drawState.mode = null; // ไฟล์ใหม่ = โน้ตใหม่ ปิดโหมดวาด
     renderDrawToolbar();
     await nextTask();
     if (token !== loadToken) return;
@@ -234,6 +266,7 @@ function onParsed(fileName, result, notes) {
     await nextTask();
     if (token !== loadToken) return;
     buildChart();
+    if (keep) restoreView(keep);
     hideProgress();
   })();
 }
@@ -563,7 +596,7 @@ function renderFileInfo() {
   const times = result.times;
   const rows = [
     ["file", fileName],
-    ["ini", result.ini ?? "–"],
+    ["ini", result.ini ?? (result.format === "esp32" ? t(MSG.espSource) : "–")],
     ["period", `${formatDateTime(times[0])} → ${formatDateTime(times[times.length - 1])}`],
     ["software", "–"],
     ["workMode", "–"],
@@ -1056,21 +1089,10 @@ function bindEvents() {
   });
 }
 
-initLanguage();
-initTheme();
+initSite(); // ภาษา / โหมดสว่าง-มืด / เวอร์ชัน / นาฬิกาท้ายเว็บ (js/site.js)
 initTimeZone();
 bindEvents();
 
-// ---------- หัวเว็บ / ท้ายเว็บ ----------
-document.getElementById("app-version").textContent = APP_VERSION;
-
-// วันที่และเวลาปัจจุบันของเครื่องผู้ใช้ (อัปเดตทุกวินาที)
-function updateClock() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  document.getElementById("now").textContent =
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
-    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-updateClock();
-setInterval(updateClock, 1000);
+// analyze.html?device=<ชื่อ> = หน้ากราฟของ Data Logger (เปิดจากหน้า Monitoring) — โหลดข้อมูลเองแทนการนำเข้าไฟล์
+const liveDevice = new URLSearchParams(location.search).get("device");
+if (liveDevice) import("./live.js").then((m) => m.startLive(liveDevice));
