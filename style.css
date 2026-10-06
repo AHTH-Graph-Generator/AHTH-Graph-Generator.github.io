@@ -549,8 +549,28 @@ body.modal-open { overflow: hidden; }
 .dashboard { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .dashboard .panel { margin-bottom: 0; }
 .slot { display: contents; }
-.group-card { padding: 8px 12px 10px; }
-.group-card .stats tr.group th { padding-top: 6px; }
+.group-card { padding: 10px 12px 12px; }
+
+/* หัวข้อ (SENSOR ฯลฯ) + ปุ่มซ่อน/แสดง */
+.group-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.group-title { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--primary); }
+/* รายการ = กล่องเล็ก (แบบการ์ดหน้า Monitoring): จอกว้างพอ = หลายคอลัมน์ */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 6px; }
+.stat-item {
+  display: flex; flex-direction: column; gap: 0; min-width: 0; padding: 4px 10px 5px; line-height: 1.25;
+  border-radius: 10px; background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--item) 45%, var(--border));
+  font-variant-numeric: tabular-nums;
+}
+.stat-item.off { border-color: var(--border); }
+.stat-item.off .stat-name, .stat-item.off .stat-top b, .stat-item.off .stat-sub { color: var(--muted); }
+.stat-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.stat-top .series-toggle { flex: 1; min-width: 0; gap: 6px; }
+.stat-top .series-toggle input { width: 14px; height: 14px; margin: 0; }
+.stat-name { min-width: 0; font-size: 0.84rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat-top b { font-size: 1rem; font-weight: 700; white-space: nowrap; }
+.stat-sub { display: flex; flex-wrap: wrap; gap: 0 12px; padding-left: 42px; font-size: 0.72rem; line-height: 1.2; color: var(--muted); }
+.stat-sub b { font-weight: 600; color: var(--text); }
 .chart-panel .cursor-time { margin: 8px 0 0; }
 
 /* จอแนวนอนกว้าง: ตารางวางรอบกราฟ — ซ้าย (SENSOR, CONTROL PANEL) / กราฟ / ขวา (COMPONENT, SYSTEM),
@@ -559,7 +579,7 @@ body.modal-open { overflow: hidden; }
   /* หัวเว็บ / เนื้อหา / ท้ายเว็บ ใช้ความกว้างเต็มจอเหมือนกัน */
   .container { max-width: none; padding-left: 24px; padding-right: 24px; }
   .dashboard {
-    grid-template-columns: minmax(320px, 480px) minmax(0, 1fr) minmax(320px, 480px);
+    grid-template-columns: minmax(280px, 305px) minmax(0, 1fr) minmax(280px, 305px); /* ช่องข้างพอดีเนื้อหา = กราฟกว้างขึ้น */
     grid-template-areas:
       "left chart right"
       "left below right";
@@ -572,14 +592,18 @@ body.modal-open { overflow: hidden; }
   .slot-right  { grid-area: right; }
   .slot-below  { grid-area: below; flex-direction: row; align-items: flex-start; }
   .slot-below > .group-card { flex: 1; min-width: 0; }
-  /* กล่องข้างกราฟแคบ: ให้ชื่อยาวขึ้นบรรทัดใหม่ได้ ตัวเลขชิดกันขึ้น */
-  .group-card .stats th, .group-card .stats td { padding: 3px 4px; }
-  .group-card .stats tbody td { line-height: 1.4; }
-  /* กล่องแคบ: หัวข้อ (SENSOR ฯลฯ) ขนาดเดิม — รายการข้างใต้ + หัวคอลัมน์ตัวเล็กลง ให้อยู่บรรทัดเดียว */
-  .group-card .stats tr.columns th { font-size: 0.7rem; white-space: nowrap; }
-  .group-card .stats tbody td { font-size: 0.8rem; }
-  .group-card .stats .series-toggle { gap: 6px; }
-  .group-card .stats .item-note { font-size: 0.7rem; }
+  /* ช่องข้างกราฟ: 1 คอลัมน์ ตัวอักษรเล็กลงเล็กน้อย ให้ชื่ออยู่บรรทัดเดียว (หัวข้อขนาดเดิม) */
+  /* กล่องรอบกราฟแน่นขึ้น: ทุกกล่องต้องอยู่ในจอเดียว (จอ 1920×1080) */
+  .slot .stat-grid { gap: 4px; }
+  .slot-left .stat-grid, .slot-right .stat-grid { grid-template-columns: minmax(0, 1fr); }
+  .slot .stat-item { padding: 2px 8px 3px; line-height: 1.15; }
+  .slot .group-card { padding: 6px 8px 8px; }
+  .slot .group-head { margin-bottom: 4px; }
+  .slot .stat-name { font-size: 0.84rem; }   /* แบบ B: ตัวใหญ่ขึ้น ~10% (ผู้ใช้เลือก) */
+  .slot .stat-top b { font-size: 0.95rem; }
+  .slot .stat-sub { font-size: 0.72rem; }
+  .slot .stat-top .series-toggle input { width: 13px; height: 13px; }
+  .group-card .item-note { font-size: 0.7rem; }
 }
 .stats { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .stats th, .stats td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
@@ -622,4 +646,5 @@ body.modal-open { overflow: hidden; }
   .range-buttons { flex: 1 1 100%; }
   .range-buttons .btn { flex: 1; }
   .stats th, .stats td { padding: 6px 6px; }
+  .stat-grid { grid-template-columns: minmax(0, 1fr); }
 }

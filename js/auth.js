@@ -38,7 +38,12 @@ export async function api(path, { method = "GET", body, raw = false, cache = "no
     if (r.status === 401) setToken(null);
     throw new ApiError(r.status, code);
   }
-  return raw ? r.text() : r.json();
+  if (raw) return r.text();
+  const json = await r.json();
+  // Worker ตอบรายการเครื่องรุ่นเก่า (Apps Script ช้า/ล้มเหลวชั่วคราว) → แนบอายุ (วินาที) ไว้ให้หน้าเว็บแจ้ง
+  const stale = r.headers.get("X-Index-Stale");
+  if (stale && json && typeof json === "object") json.__stale = +stale;
+  return json;
 }
 
 export const requestCode = (email) => api("/auth/request-code", { method: "POST", body: { email } });

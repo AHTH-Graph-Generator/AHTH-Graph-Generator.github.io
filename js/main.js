@@ -56,6 +56,7 @@ const MSG = {
   colMin:         { th: "Min", en: "Min" },
   colMax:         { th: "Max", en: "Max" },
   colAvg:         { th: "เฉลี่ย", en: "Average" },
+  colAvgShort:    { th: "เฉลี่ย", en: "Avg" },
   scopeView:      { th: "Min / Max / เฉลี่ย ของช่วงที่แสดงบนกราฟ: {from} → {to} (°C)", en: "Min / Max / Average of the visible range: {from} → {to} (°C)" },
   espSource:      { th: "ESP32 Data Logger", en: "ESP32 Data Logger" }, // CSV ดิบไม่มีชื่อ INI
   fileZone:       { th: "เวลาในไฟล์", en: "file time" },
@@ -67,13 +68,15 @@ const MSG = {
 // slot = ตำแหน่งกล่องบนจอแนวนอนกว้าง: left ซ้ายกราฟ / right ขวากราฟ / below ใต้กราฟ
 //        (ในช่องเดียวกันเรียงตามลำดับในรายการนี้) — จอแคบ/แนวตั้งเรียงลงมาตามลำดับรายการนี้ ไม่สนช่อง
 // รายการในแต่ละหัวข้อเรียงตามตัวอักษรของชื่อ (ดู renderStatsTable)
+// ลำดับ (ผู้ใช้กำหนด): จอแคบ/แนวตั้ง = ลำดับในรายการนี้ · จอแนวนอน: ซ้าย = Sensor, System, Temp work confirm
+//                     ขวา = Component, Heater control, Control panel · ใต้กราฟ = Error, Other
 const TABLE_GROUPS = [
   { key: "sensor",    slot: "left",  th: "เซนเซอร์",   en: "Sensor" },
   { key: "component", slot: "right", th: "ชิ้นส่วน",    en: "Component" },
-  { key: "system",    slot: "right", th: "ระบบ",       en: "System" },
-  { key: "temp",      slot: "right", th: "Temp work confirm", en: "Temp work confirm" },
-  { key: "control",   slot: "left",  th: "แผงควบคุม",  en: "Control panel" },
-  { key: "heater",    slot: "left",  th: "Heater control", en: "Heater control" },
+  { key: "heater",    slot: "right", th: "Heater control", en: "Heater control" },
+  { key: "system",    slot: "left",  th: "ระบบ",       en: "System" },
+  { key: "temp",      slot: "left",  th: "Temp work confirm", en: "Temp work confirm" },
+  { key: "control",   slot: "right", th: "แผงควบคุม",  en: "Control panel" },
   { key: "error",     slot: "below", th: "ข้อผิดพลาด", en: "Error" },
   { key: "other",     slot: "below", th: "อื่นๆ",      en: "Other" },
 ];
@@ -636,53 +639,32 @@ function renderStatsTable() {
   });
 }
 
-// กล่อง 1 หัวข้อ: ตารางของตัวเอง + ปุ่มซ่อน/แสดงรายการข้างใน
+// กล่อง 1 หัวข้อ: หัวข้อ + ปุ่มซ่อน/แสดง + รายการเป็นกล่องเล็ก (แบบการ์ดหน้า Monitoring)
 function createGroupCard(group, members) {
   const card = document.createElement("section");
   card.className = "panel group-card";
   card.dataset.group = group.key;
 
-  const table = document.createElement("table");
-  table.className = "stats";
-  const thead = document.createElement("thead");
-
-  const titleRow = document.createElement("tr");
-  titleRow.className = "group";
-  const titleCell = document.createElement("th");
-  titleCell.colSpan = 5;
+  const head = document.createElement("div");
+  head.className = "group-head";
   const title = document.createElement("span");
+  title.className = "group-title";
   title.textContent = t(group);
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "group-toggle";
-  titleCell.append(title, toggle);
-  titleRow.append(titleCell);
+  head.append(title, toggle);
 
-  const columnRow = document.createElement("tr");
-  columnRow.className = "columns";
-  [["colName", ""], ["colCursor", "num"], ["colMin", "num"], ["colMax", "num"], ["colAvg", "num"]].forEach(([key, cls]) => {
-    const th = document.createElement("th");
-    th.className = cls;
-    th.textContent = t(MSG[key]);
-    columnRow.append(th);
-  });
-  thead.append(titleRow, columnRow);
-
-  const tbody = document.createElement("tbody");
-  tbody.append(...members);
-  table.append(thead, tbody);
-
-  const wrap = document.createElement("div");
-  wrap.className = "table-wrap";
-  wrap.append(table);
-  card.append(wrap);
+  const grid = document.createElement("div");
+  grid.className = "stat-grid";
+  grid.append(...members);
+  card.append(head, grid);
 
   const refresh = () => {
     const collapsed = collapsedGroups.has(group.key);
     toggle.textContent = t(collapsed ? MSG.showGroup : MSG.hideGroup);
     toggle.setAttribute("aria-expanded", String(!collapsed));
-    columnRow.hidden = collapsed;
-    tbody.hidden = collapsed;
+    grid.hidden = collapsed;
   };
   toggle.addEventListener("click", () => {
     if (collapsedGroups.has(group.key)) collapsedGroups.delete(group.key);
@@ -723,14 +705,22 @@ function createSwatch(item) {
   return svg;
 }
 
+// 1 รายการ = กล่องเล็ก: บรรทัดบน [checkbox][ภาพลักษณะ] ชื่อ ··· ค่า ณ เคอร์เซอร์ (ตัวใหญ่)
+//                     บรรทัดล่าง Min · Max · เฉลี่ย (ตัวเล็ก) — ขอบกล่องสีจางตามสีของรายการ
+// (ช่องค่าใช้ class cursor / min / max / avg — updateStats / updateCursor หาด้วย class)
 function createStatRow(item) {
-  const tr = document.createElement("tr");
+  const row = document.createElement("div");
+  row.className = "stat-item";
+  row.style.setProperty("--item", resolveColor(item.meta.color || "axis"));
 
-  const nameCell = document.createElement("td");
+  const top = document.createElement("div");
+  top.className = "stat-top";
   const label = document.createElement("label");
   label.className = "series-toggle";
   const text = document.createElement("span");
+  text.className = "stat-name";
   text.textContent = item.meta[getLang()];
+  text.title = item.meta[getLang()];
   if (item.allZero) {
     const note = document.createElement("span");
     note.className = "item-note muted";
@@ -738,7 +728,7 @@ function createStatRow(item) {
     text.append(note);
   }
   if (item.kind === "value") {
-    // ไม่มีในกราฟ → ไม่มี checkbox / ภาพลักษณะ (เว้นที่ไว้ให้ชื่อตรงกับแถวอื่น)
+    // ไม่มีในกราฟ → ไม่มี checkbox / ภาพลักษณะ (เว้นที่ไว้ให้ชื่อตรงกับรายการอื่น)
     const spacer = document.createElement("span");
     spacer.className = "toggle-spacer";
     label.append(spacer, text);
@@ -748,21 +738,30 @@ function createStatRow(item) {
     box.checked = item.show;
     box.addEventListener("change", () => {
       setItemVisible(item, box.checked);
-      tr.classList.toggle("off", !item.show);
+      row.classList.toggle("off", !item.show);
     });
     label.append(box, createSwatch(item), text);
   }
-  nameCell.append(label);
+  const cursor = document.createElement("b");
+  cursor.className = "num cursor";
+  cursor.textContent = "–";
+  cursor.title = t(MSG.colCursor);
+  top.append(label, cursor);
 
-  const cells = ["cursor", "min", "max", "avg"].map((name) => {
-    const td = document.createElement("td");
-    td.className = `num ${name}`;
-    td.textContent = "–";
-    return td;
+  const sub = document.createElement("div");
+  sub.className = "stat-sub";
+  [["min", MSG.colMin], ["max", MSG.colMax], ["avg", MSG.colAvgShort]].forEach(([name, msg]) => {
+    const part = document.createElement("span");
+    const value = document.createElement("b");
+    value.className = `num ${name}`;
+    value.textContent = "–";
+    part.append(`${t(msg)} `, value);
+    sub.append(part);
   });
-  tr.classList.toggle("off", !item.show);
-  tr.append(nameCell, ...cells);
-  return tr;
+
+  row.classList.toggle("off", !item.show);
+  row.append(top, sub);
+  return row;
 }
 
 // เมื่อช่วงเวลาบนกราฟเปลี่ยน (zoom / reset / เลือกช่วงจากช่องเวลา) → อัปเดต input และ stats

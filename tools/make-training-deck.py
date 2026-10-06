@@ -167,7 +167,7 @@ circle_num(s, 0.8, 1.2, 0.9, "°C", fill=CORAL, size=22)
 text(s, 0.8, 2.4, 11.5, 1.2, "AHTH Graph Generator", size=54, bold=True, color=WHITE)
 text(s, 0.8, 3.55, 11.5, 0.7, "คู่มือการพัฒนาและดูแลระบบ — ทำทีละขั้น", size=26, color=CODE_KEY)
 text(s, 0.8, 4.5, 11.5, 1.4, ["ระบบวิเคราะห์และติดตามข้อมูลตู้เย็น: วิเคราะห์ไฟล์ Log + ติดตามสถานะ Data Logger",
-                             "Release 2.0 · https://ahth-graph-generator.github.io"], size=16, color=RGBColor(0xB8, 0xC4, 0xD4),
+                             "Release 2.1 · https://ahth-graph-generator.github.io"], size=16, color=RGBColor(0xB8, 0xC4, 0xD4),
      line_spacing=1.3)
 notes(s, "แนะนำตัวโปรเจกต์: เว็บที่อ่านไฟล์ log ของตู้เย็นแล้วแสดงกราฟอุณหภูมิและสถานะชิ้นส่วน "
          "สไลด์ชุดนี้สอนว่าโปรแกรมทำงานอย่างไร และทำงานประจำ (เพิ่มรายการ ทดสอบ release) ทีละขั้น "
@@ -660,7 +660,7 @@ title(s, "ปล่อยเวอร์ชันใหม่ (Release)", "เ�
 rel = [("เปลี่ยนเวอร์ชัน", "APP_VERSION ใน site.js\n+ บรรทัด \"ตอนนี้ x.y\" ใน CLAUDE.md"),
        ("ทดสอบ", "ตามเช็กลิสต์ครบทุกข้อ"),
        ("git status", "ห้ามมี samples/private/\nlog / xlsx / csv จริง, ~$…"),
-       ("commit", "git commit -m \"Release 2.0: …\""),
+       ("commit", "git commit -m \"Release 2.1: …\""),
        ("push", "git push origin main"),
        ("ตรวจเว็บจริง", "รอ ~1 นาที → Ctrl+F5\nป้ายหัวเว็บเป็นเวอร์ชันใหม่")]
 for i, (h, d) in enumerate(rel):

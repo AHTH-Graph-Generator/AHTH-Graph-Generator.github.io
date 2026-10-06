@@ -209,7 +209,7 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
 - สีดึงจากเซนเซอร์/พัดลมที่เกี่ยวข้องอัตโนมัติ (`cutTemp()` ใน `js/logformat.js`)
 
 ### ตาราง Min / Max / Avg แบ่งเป็นหัวข้อ
-- ลำดับหัวข้อ (ผู้ใช้กำหนด): **SENSOR → COMPONENT → SYSTEM → TEMP WORK CONFIRM → CONTROL PANEL → HEATER CONTROL → ERROR → OTHER** (หัวข้อที่ไม่มีรายการจะไม่แสดง)
+- ลำดับหัวข้อ (ผู้ใช้กำหนด 2026-10-06): **SENSOR → COMPONENT → HEATER CONTROL → SYSTEM → TEMP WORK CONFIRM → CONTROL PANEL → ERROR → OTHER** (หัวข้อที่ไม่มีรายการจะไม่แสดง)
 - รายการที่ไม่มีในกราฟ (`kind: "value"`) แสดงแค่ตัวเลขในตาราง ไม่มี checkbox / ภาพลักษณะ
 - **รายการในแต่ละหัวข้อเรียงตามตัวอักษรของชื่อ** (ไม่สนตัวพิมพ์เล็ก/ใหญ่) — ลำดับบนกราฟไม่เกี่ยว
 - หัวข้อของแต่ละรายการกำหนดด้วย `group` ใน `js/logformat.js` (ไม่ระบุ = sensor)
@@ -244,6 +244,8 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
   time zone = `js/logformat.js`, กราฟ / ตาราง / Real data = โมดูลเดิม (`chart.js`, `rawdata.js` …)
   - ทุกหน้ามีสคริปต์เล็กใน `<head>` ตั้งโหมดสว่าง/มืดก่อนวาด (กันกระพริบ) — เป็นข้อยกเว้นเดียวที่ซ้ำกันได้
 - หน้าย่อยมีลิงก์ **← หน้าแรก** + ชื่อหน้าในหัวเว็บ (`.page-nav`), คลิกโลโก้ = กลับหน้าแรก
+- **ไอคอนแท็บ (favicon)**: กราฟเส้นสีขาวในกรอบสีฟ้า (`--primary`) + จุดส้มที่จุดล่าสุด — `favicon.svg` (หลัก), `favicon-32.png`,
+  `apple-touch-icon.png` (iPhone/iPad "เพิ่มไปยังหน้าจอโฮม") — PNG สร้างด้วย `python tools/make-icons.py` · **ทุกหน้า HTML ต้องมี `<link rel="icon">` 3 บรรทัดนี้**
 - **ลิงก์เก่าต้องไม่พัง**: เปิดหน้าแรกพร้อม query (เช่น `/?pentest`) → ส่งต่อไป `analyze.html` พร้อม query เดิม
 - การ์ดที่หน้ายังไม่เสร็จ = จาง + ป้าย "อยู่ระหว่างพัฒนา" (ไม่มีลิงก์)
 - **ข้อความบนเว็บใช้ภาษาทางการ** (ผู้ใช้กำหนด): เช่น "นำเข้าไฟล์ Log", "ทดลองใช้งานด้วยไฟล์ตัวอย่าง", "ประมวลผลภายในเครื่อง · ไม่ต้องเข้าสู่ระบบ",
@@ -253,7 +255,8 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
 ### Monitoring (ตัดสินใจแล้ว — รายละเอียดระบบใน `samples/private/monitoring-manual.pdf` ไม่อยู่ใน repo)
 - ข้อมูล: ESP32 → Google Drive (`uart_log_DataLogger_<device>_<YYYY-MM-DD>.csv` ทุก 10 นาที ไฟล์ใหม่ทุกวัน)
   → Google Apps Script → Cloudflare Worker → เว็บ
-- **Login: อีเมลอะไรก็ได้ + รหัส 6 หลัก (OTP) ส่งเข้าอีเมล** (ส่งผ่าน Apps Script MailApp ~100 ฉบับ/วัน — ผู้ใช้จริงไม่เกิน ~10 คน)
+- **Login: อีเมลอะไรก็ได้ + รหัส 6 หลัก (OTP) ส่งเข้าอีเมล** — ผู้ใช้พิจารณาทางอื่นแล้ว (Google Authenticator, push แบบ Okta Verify / Duo,
+  Sign in with Google, Passkey) **ตัดสินใจคงวิธีนี้ไว้** (2026-10-05) — ไม่ต้องเสนอซ้ำ (ส่งผ่าน Apps Script MailApp ~100 ฉบับ/วัน — ผู้ใช้จริงไม่เกิน ~10 คน)
   - ใครก็สมัครได้ (กรอกชื่อ / แผนก / เหตุผล) → สถานะรออนุมัติ + อีเมลแจ้งแอดมิน
   - **แอดมินคนเดียว (เจ้าของเว็บ) อนุมัติ / ปฏิเสธ / ถอนสิทธิ์** ที่ `admin.html` — ถอนสิทธิ์มีผลภายใน ~1 นาที
   - Worker ตรวจสิทธิ์**ทุกคำขอ** — ไม่มีสิทธิ์ = ไม่ได้ข้อมูลเลย (รู้ URL ของ Worker ก็ไม่ได้)
@@ -265,6 +268,8 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
 - ไฟล์ CSV ดิบ (`timestamp,raw_hex`, frame 228 byte) เปิดในหน้า analyze ได้ด้วย (ถอดใน worker) ✅ ขั้น 2
 - **โค้ดฝั่งเซิร์ฟเวอร์ (ขั้น 4)** — อยู่ใน repo เพื่อเก็บประวัติ แต่ **ผู้ใช้ deploy เอง** (ไม่ได้รันบน GitHub Pages) คู่มือ: `docs/MONITORING-SETUP.md`
   - `server/apps-script/Code.gs`: `?action=index` (device + ไฟล์ `KEEP_DAYS` = 62 วัน), `?action=file&id=` (เฉพาะไฟล์ในโฟลเดอร์), POST `action=mail`
+    - **รายการไฟล์ใช้ Drive API v3 (Advanced Service) ดึงทั้งโฟลเดอร์ในคำขอเดียว** + จำใน CacheService 60 วินาที
+      (DriveApp อ่านทีละไฟล์ใช้ 7–11 วินาทีที่ ~200 ไฟล์ และ error บ่อยเมื่อผู้ใช้หลายคน — เหลือไว้เป็นทางสำรองถ้ายังไม่เปิด Drive API)
     — ค่าลับใน Script Properties: `SECRET`, `FOLDER_ID`
   - `server/worker/worker.js`: login OTP ทางอีเมล + สมัคร/อนุมัติ + ตรวจสิทธิ์ทุกคำขอ + API แอดมิน — ค่าลับใน Worker secrets:
     `APPS_SCRIPT_KEY`, `SESSION_SECRET`, `ADMIN_EMAIL` + Text `APPS_SCRIPT_URL` + KV `USERS`
@@ -272,7 +277,9 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
       `GET /index`, `GET /file?id=&v=`, `GET|POST /admin/users` (action: approve / reject / revoke / delete)
     - สถานะผู้ใช้: new → pending (ขอสิทธิ์) → approved / rejected / revoked; `ADMIN_EMAIL` = approved + แอดมินเสมอ
     - OTP 6 หลัก หมดอายุ 10 นาที, ผิดได้ 5 ครั้ง, ขอได้ 5 ครั้ง/ชม./อีเมล · ถอนสิทธิ์มีผลภายใน ~1 นาที
-    - ไฟล์ที่มี `?v=<modified>` จำถาวร (หน่วยความจำ Worker + Cache API + browser `private, immutable`) · `/index` จำ 30 วินาที
+    - ไฟล์ที่มี `?v=<modified>` จำถาวร (หน่วยความจำ Worker + Cache API + browser `private, immutable`) · `/index` จำ 60 วินาที
+    - **คำขอพร้อมกันเรียก Apps Script ครั้งเดียว** (`once()`), Apps Script เกิน 25 วินาที = ล้มเหลว,
+      **Apps Script ล้มเหลว → ตอบรายการเครื่องล่าสุดที่เคยได้ + header `X-Index-Stale` (วินาที)** แทน error
     - `ALLOWED_ORIGINS`: GitHub Pages + `http://localhost:8000`
   - **แก้ `Code.gs` / `worker.js` แล้วต้องบอกผู้ใช้ให้ deploy ใหม่** (Apps Script: Manage deployments → New version; Worker: Edit code → Deploy)
   - ทดสอบ worker.js ในเครื่องได้: import ใน browser แล้วเรียก `default.fetch(request, env)` ด้วย KV / Apps Script จำลอง
@@ -308,6 +315,8 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
     6. **ท้ายการ์ด (ชิดล่างเสมอ)**: ข้อความแจ้งเตือน (High temp / sensor error / ไม่มีข้อมูลจากตู้), ปรับปรุงล่าสุด, "ดูกราฟเต็ม →"
        — **ข้อความแจ้งเตือนต้องอยู่ล่าง ไม่ใช่บน** (ผู้ใช้กำหนด) ส่วนข้อมูลของทุกการ์ดจะได้อยู่ระดับเดียวกัน
     · ค้นหาชื่อ + กรอง ทั้งหมด / Online / Offline (สถานะ "ไม่มีข้อมูลจากตู้" นับเป็น Online) · เรียง Online → ไม่มีข้อมูลจากตู้ → Offline
+    · **แสดงการ์ดทันทีที่ได้รายการเครื่อง** ("กำลังโหลดข้อมูล…") แล้วเติมข้อมูลทีละเครื่อง (โหลดพร้อมกัน 6) — ไม่รอครบทุกเครื่อง
+    · รายการเครื่องเก่ากว่า 2 นาที (Worker ส่ง `X-Index-Stale`) → แจ้ง "ระบบตอบช้า — แสดงรายการเครื่องเมื่อ … นาทีที่แล้ว"
     · การ์ดอ่านไฟล์ 2 วันล่าสุดของ device
   - **สถานะของ device (ระบบจริง)** — `deviceStatus()` ใน `monitor-api.js` ใช้ทั้งหน้า monitor และหน้ากราฟ device:
     - `lastModified` = เวลาที่ไฟล์ใน Google Drive ถูกแก้ล่าสุด (ESP32 เขียนทุก 10 นาที) เทียบกับนาฬิกาเครื่องคนดู
@@ -333,14 +342,23 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
 6. ข้อความ error ที่เข้าใจง่ายเมื่อไฟล์ผิดรูปแบบ (บอกเลขบรรทัดที่ผิด) — แถวเสียให้ข้ามแล้วนับจำนวนแจ้งผู้ใช้ ไม่ต้องหยุดทั้งไฟล์
 
 ### การจัดวางหน้าผล (layout)
-- ตารางแยกเป็น **กล่องละ 1 หัวข้อ** (ตารางของตัวเอง มีหัวคอลัมน์ + ปุ่มซ่อน/แสดง)
+- ตารางแยกเป็น **กล่องละ 1 หัวข้อ** (หัวข้อ + ปุ่มซ่อน/แสดง)
+- **รายการ = กล่องเล็ก แบบการ์ดหน้า Monitoring (ผู้ใช้เลือกแบบ C)** — `createStatRow()` ใน main.js:
+  - บรรทัดบน: [checkbox][ภาพลักษณะ] ชื่อ ··· **ค่า ณ เคอร์เซอร์ตัวใหญ่** · บรรทัดล่าง: Min · Max · เฉลี่ย ตัวเล็ก
+  - ขอบกล่องสีจางตามสีของรายการ (`--item`), ไม่ติ๊ก = ขอบเทา ตัวอักษรจาง · ไม่มีหัวคอลัมน์แล้ว
+  - หลายคอลัมน์ตามความกว้าง (`.stat-grid` auto-fill ≥ 250px) — จอแนวตั้ง ~1000px = 3 คอลัมน์, มือถือ = 1 คอลัมน์
+  - ชื่อบรรทัดเดียว (ยาวเกิน = … และชี้แล้วเห็นชื่อเต็ม)
 - **จอแนวนอนกว้าง** (`min-width: 1400px` และ `orientation: landscape`): วางกล่องรอบกราฟ
   - หัวเว็บ (ชื่อ / ปุ่ม), เนื้อหา และท้ายเว็บ ใช้ความกว้างเต็มจอ (ไม่จำกัด 1200px) ชิดขอบซ้าย/ขวาเท่ากัน
-  - ซ้ายกราฟ: SENSOR, CONTROL PANEL, HEATER CONTROL · ขวากราฟ: COMPONENT (บน), SYSTEM, TEMP WORK CONFIRM · ใต้กราฟ: ERROR, OTHER (คู่กัน)
-  - **หัวข้อ (SENSOR ฯลฯ) ขนาดเดิม ห้ามย่อ** — ย่อเฉพาะรายการข้างใต้ (ชื่อ/ตัวเลข) และหัวคอลัมน์
-    ให้แต่ละรายการอยู่บรรทัดเดียว ไม่ตัด 2 บรรทัด (ช่องข้างกราฟกว้างสูงสุด 480px)
-  - ความสูงกราฟปรับตามความสูงจอ ให้กราฟ + ตารางทั้งหมดอยู่ในจอเดียวโดยไม่ต้องเลื่อน
-- **จอแนวตั้ง / จอแคบ / มือถือ**: เรียงลงมา กราฟ → SENSOR → COMPONENT → SYSTEM → TEMP WORK CONFIRM → CONTROL PANEL → HEATER CONTROL → ERROR → OTHER (แบบเดิม — ไม่ขึ้นกับช่องของจอแนวนอน, ใช้ CSS `order`)
+  - **ซ้ายกราฟ: SENSOR, SYSTEM, TEMP WORK CONFIRM · ขวากราฟ: COMPONENT, HEATER CONTROL, CONTROL PANEL** (ผู้ใช้กำหนด 2026-10-06 — ข้างละ 17 รายการ สมดุลกัน)
+    · ใต้กราฟ: ERROR, OTHER (คู่กัน เหมือนเดิม)
+  - **หัวข้อ (SENSOR ฯลฯ) ขนาดเดิม ห้ามย่อ** — ย่อเฉพาะรายการข้างใต้ (กล่องแน่นขึ้น ตัวเล็กลง) ให้ชื่ออยู่บรรทัดเดียว
+  - **ช่องข้างกราฟกว้าง 280–305px (1 คอลัมน์) — ผู้ใช้ต้องการกราฟกว้างขึ้น** (เดิม ≤ 480px กราฟกระจุกตรงกลาง)
+    เนื้อหากว้างสุด = "Refrigerator Evap sensor" + เผื่อค่าเช่น `ON(100%)` ~270px ที่ตัวอักษรแบบ B
+  - **ตัวอักษรในช่องรอบกราฟแบบ B (ผู้ใช้เลือก)**: ชื่อ 0.84rem, ค่า ณ เคอร์เซอร์ 0.95rem, Min/Max/เฉลี่ย 0.72rem — กล่องสูง ~38px
+  - **ความสูงกราฟคำนวณจากพื้นที่ที่เหลือจริง** (`wideChartHeight()` ใน chart.js: จอ − หัวเว็บ − ส่วนอื่นในกล่องกราฟ − กล่องใต้กราฟ, 300–820px)
+    ให้กราฟ + กล่องทั้งหมดอยู่ในจอเดียว — ตรวจแล้ว: 1920×1080 (กราฟ ~1181×588), 1846×940 (กราฟ ~1107×448) · จอเตี้ยกว่า (1440×900) เลื่อนลงเล็กน้อยได้
+- **จอแนวตั้ง / จอแคบ / มือถือ**: เรียงลงมา กราฟ → SENSOR → COMPONENT → HEATER CONTROL → SYSTEM → TEMP WORK CONFIRM → CONTROL PANEL → ERROR → OTHER (ไม่ขึ้นกับช่องของจอแนวนอน, ใช้ CSS `order` ตามลำดับ `TABLE_GROUPS`)
 - ช่องของแต่ละหัวข้อกำหนดด้วย `slot` ใน `TABLE_GROUPS` (`js/main.js`) — `left` / `right` / `below`
 - บรรทัดเวลาเคอร์เซอร์และข้อความช่วงที่เลือก อยู่ใต้กราฟ (ในกล่องกราฟ)
 
@@ -352,7 +370,7 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
 
 ### หัวเว็บ / ท้ายเว็บ
 - หัวเว็บ: `AHTH Graph Generator` ต่อท้ายด้วย **`Release version X.Y`** — เลขเวอร์ชันอยู่ที่ `APP_VERSION` ใน `js/site.js` ที่เดียว (ทุกหน้าใช้ร่วมกัน)
-  (ตอนนี้ **2.0**) ต้องเปลี่ยนทุกครั้งที่ release
+  (ตอนนี้ **2.1**) ต้องเปลี่ยนทุกครั้งที่ release
 - มุมขวาบน: ปุ่ม **สลับโหมดสว่าง / มืด** (☀️ / 🌙 แสดงโหมดที่จะสลับไป) อยู่ข้างปุ่ม TH/EN — โค้ดใน `js/theme.js`
   - ครั้งแรกใช้ตามเครื่องผู้ใช้, กดแล้วจำไว้ใน localStorage `theme`, ตั้งค่าตั้งแต่ `<head>` กันหน้าจอกระพริบ
   - สีโหมดมืดอยู่ใต้ `:root[data-theme="dark"]` ใน style.css; สลับโหมดแล้วสร้างกราฟใหม่ (คงช่วง zoom)

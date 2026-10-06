@@ -27,10 +27,24 @@ const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyV
 
 // ความสูงกราฟ: มือถือ 300, ปกติ 440, จอแนวนอนกว้าง (layout แบบตารางรอบกราฟ) ใช้ความสูงจอให้คุ้ม
 const WIDE_LAYOUT = window.matchMedia("(min-width: 1400px) and (orientation: landscape)");
-const chartHeight = () => {
+// จอกว้าง: กราฟสูงเท่าพื้นที่ที่เหลือจริง — หน้าจอ − หัวเว็บ − ส่วนอื่นในกล่องกราฟ (ช่องเวลา/ปุ่ม/บรรทัดเคอร์เซอร์) − กล่องใต้กราฟ
+// ให้กราฟ + กล่อง ERROR/OTHER อยู่ในจอเดียว (กล่องข้างกราฟสั้นกว่าอยู่แล้ว)
+const WIDE_MIN_HEIGHT = 300;
+const WIDE_MAX_HEIGHT = 820;
+function wideChartHeight(container) {
+  const panel = container.closest(".chart-panel");
+  const below = document.getElementById("slot-below");
+  const topbar = document.querySelector(".topbar");
+  if (!panel || !below) return Math.min(Math.max(380, window.innerHeight - 520), 760);
+  const panelOther = panel.offsetHeight - container.offsetHeight; // ส่วนอื่นในกล่องกราฟ
+  const gaps = 16 * 2 + 8;                                       // ช่องว่างระหว่างกล่อง + ขอบล่าง
+  const free = window.innerHeight - (topbar ? topbar.offsetHeight : 56) - panelOther - below.offsetHeight - gaps;
+  return Math.round(Math.min(Math.max(WIDE_MIN_HEIGHT, free), WIDE_MAX_HEIGHT));
+}
+
+const chartHeight = (container) => {
   if (window.innerWidth < 640) return 300;
-  // จอกว้าง: กราฟ + ตาราง ERROR/OTHER ใต้กราฟ ต้องอยู่ในจอเดียว (ลบส่วนหัว/ปุ่ม/ตารางล่าง ~510 px)
-  if (WIDE_LAYOUT.matches) return Math.min(Math.max(360, window.innerHeight - 510), 720);
+  if (WIDE_LAYOUT.matches) return wideChartHeight(container);
   return 440;
 };
 
@@ -418,7 +432,7 @@ export function createChart(container, times, seriesList, handlers, markerLayers
 
   const opts = {
     width: container.clientWidth,
-    height: chartHeight(),
+    height: chartHeight(container),
     tzDate,
     legend: { show: false },            // ใช้ตารางของเราเองแทน
     cursor: {
@@ -479,7 +493,7 @@ export function createChart(container, times, seriesList, handlers, markerLayers
   const data = [times, ...seriesList.map((s) => s.values)];
   const plot = new uPlot(opts, data, container);
 
-  const resize = () => plot.setSize({ width: container.clientWidth, height: chartHeight() });
+  const resize = () => plot.setSize({ width: container.clientWidth, height: chartHeight(container) });
   const observer = new ResizeObserver(resize);
   observer.observe(container);
 

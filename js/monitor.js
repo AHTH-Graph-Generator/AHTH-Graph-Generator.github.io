@@ -51,6 +51,8 @@ const MSG = {
   empty:     { th: "ไม่พบ Data Logger ที่ตรงกับเงื่อนไข", en: "No Data Logger matches the filter." },
   noDevice:  { th: "ยังไม่มี Data Logger ในระบบ", en: "No Data Logger is registered yet." },
   noData:    { th: "ยังไม่มีข้อมูลจากตู้", en: "No refrigerator data yet." },
+  loadingData:{ th: "กำลังโหลดข้อมูล…", en: "Loading data…" },
+  stale:     { th: "ระบบตอบช้า — แสดงรายการเครื่องเมื่อ {n} นาทีที่แล้ว จะลองใหม่อัตโนมัติ", en: "The server is slow — showing the device list from {n} min ago. Retrying automatically." },
   loading:   { th: "กำลังโหลดข้อมูล…", en: "Loading…" },
   failed:    { th: "เชื่อมต่อระบบไม่สำเร็จ ({message}) — จะลองใหม่อัตโนมัติ", en: "Could not connect ({message}). Retrying automatically." },
 };
@@ -62,11 +64,18 @@ const CARD_SENSORS = [
 const CONTROL_ITEMS = STATUS_ITEMS.filter((item) => item.group === "control");
 const ICE_MAKER_SENSOR = SENSORS.find((s) => s.key === "iceMachine");
 const SOFTWARE_FIELDS = [...SOFTWARE_COLUMNS.no, SOFTWARE_COLUMNS.version, SOFTWARE_COLUMNS.revision];
-const FILE_CONCURRENCY = 4;
+const FILE_CONCURRENCY = 6;
 const PREVIEW_HEIGHT = 200;
 
 const $ = (id) => document.getElementById(id);
-const state = { index: null, data: new Map(), checked: null, error: null, filter: "all", busy: false, hovering: false };
+const state = { index: null, data: new Map(), loaded: new Set(), checked: null, error: null, stale: 0, filter: "all", busy: false, hovering: false };
+
+// วาดการ์ดใหม่ไม่ถี่เกิน (ระหว่างโหลดข้อมูลทีละเครื่อง)
+let renderTimer = 0;
+function renderSoon() {
+  if (renderTimer) return;
+  renderTimer = setTimeout(() => { renderTimer = 0; if (!state.hovering) render(); }, 300);
+}
 const plots = new Map(); // ชื่อ device → uPlot (ทำลายก่อนวาดใหม่)
 const col = (name) => ESP_COLUMN_NAMES.indexOf(name);
 
@@ -104,10 +113,14 @@ async function refresh() {
   try {
     const index = await getIndex();
     state.index = index;
+    state.stale = index.__stale || 0; // Worker ตอบรายการเก่าเพราะ Apps Script ช้า (วินาที)
     state.error = null;
     state.checked = new Date();
+    render(); // แสดงการ์ด (สถานะ) ทันที ไม่ต้องรอข้อมูลทุกเครื่อง
     await mapLimit(Object.entries(index.devices), FILE_CONCURRENCY, async ([name, dev]) => {
       try { state.data.set(name, await loadDeviceData(dev)); } catch { /* แสดงเฉพาะสถานะ */ }
+      state.loaded.add(name);
+      renderSoon(); // เติมข้อมูลทีละเครื่องเมื่อโหลดเสร็จ
     });
   } catch (err) {
     // token หมดอายุ / ถูกถอนสิทธิ์ระหว่างใช้งาน → โหลดหน้าใหม่ให้ขึ้นหน้าเข้าสู่ระบบ
@@ -134,8 +147,9 @@ function deviceList() {
 
 function render() {
   $("mon-demo").hidden = !isDemo();
-  $("mon-error").hidden = !state.error;
-  $("mon-error").textContent = state.error || "";
+  const notice = state.error || (state.stale > 120 ? t(MSG.stale, { n: Math.round(state.stale / 60) }) : "");
+  $("mon-error").hidden = !notice;
+  $("mon-error").textContent = notice;
   $("mon-checked").textContent = state.checked ? state.checked.toLocaleTimeString("en-GB") : "–";
   $("mon-search").placeholder = t(MSG.search);
 
@@ -179,7 +193,7 @@ function deviceCard({ name, dev, data, status }) {
   a.append(head);
 
   if (!data) {
-    a.append(el("p", "muted small", t(MSG.noData)));
+    a.append(el("p", "muted small", t(state.loaded.has(name) ? MSG.noData : MSG.loadingData)));
     appendFooter(a, dev, []);
     return { node: a };
   }

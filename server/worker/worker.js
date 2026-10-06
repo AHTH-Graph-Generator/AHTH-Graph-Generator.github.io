@@ -26,7 +26,8 @@ const ALLOWED_ORIGINS = [
   "https://ahth-graph-generator.github.io",
   "http://localhost:8000", // ทดสอบในเครื่อง (python -m http.server 8000)
 ];
-const INDEX_CACHE_SECONDS = 30;
+const INDEX_CACHE_SECONDS = 60;     // จำรายการเครื่อง 1 นาที (เว็บถามทุก 1 นาที, ESP32 เขียนทุก 10 นาที)
+const APPS_SCRIPT_TIMEOUT_MS = 25000; // Apps Script ตอบช้าเกินนี้ = ล้มเหลว (ใช้รายการล่าสุดที่เคยได้แทน)
 const OTP_TTL_SECONDS = 600;        // รหัส OTP ใช้ได้ 10 นาที
 const OTP_MAX_TRIES = 5;            // ใส่รหัสผิดได้ 5 ครั้งต่อรหัส
 const OTP_PER_HOUR = 5;             // ขอรหัสได้ 5 ครั้ง/ชั่วโมง/อีเมล
@@ -40,6 +41,13 @@ const memCache = new Map(); // key → { time, value }
 // ไฟล์ที่จำในหน่วยความจำของ Worker (เผื่อ Cache API ใช้ไม่ได้บนโดเมน *.workers.dev) — เก็บไม่เกิน FILE_MEM_MAX ไฟล์
 const FILE_MEM_MAX = 150;
 const fileMem = new Map();
+// คำขอที่กำลังรอ Apps Script อยู่ — ผู้ใช้หลายคนขอของเดียวกันพร้อมกัน = เรียก Apps Script ครั้งเดียว ใช้ผลร่วมกัน
+const inflight = new Map();
+function once(key, fn) {
+  if (!inflight.has(key)) inflight.set(key, fn().finally(() => inflight.delete(key)));
+  return inflight.get(key);
+}
+let lastGoodIndex = null; // { time, body } รายการล่าสุดที่ได้สำเร็จ — Apps Script ล้มเหลวชั่วคราวก็ยังตอบได้
 
 export default {
   async fetch(request, env, ctx) {
@@ -78,6 +86,7 @@ function corsHeaders(origin) {
     headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type";
     headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
     headers["Access-Control-Max-Age"] = "86400";
+    headers["Access-Control-Expose-Headers"] = "X-Index-Stale";
   }
   return headers;
 }
@@ -255,22 +264,35 @@ async function apply(request, env, cors) {
 
 // ---------- ข้อมูล Data Logger ----------
 async function appsScript(env, query) {
-  const r = await fetch(`${env.APPS_SCRIPT_URL}?${query}&key=${encodeURIComponent(env.APPS_SCRIPT_KEY)}`);
+  let r;
+  try {
+    r = await fetch(`${env.APPS_SCRIPT_URL}?${query}&key=${encodeURIComponent(env.APPS_SCRIPT_KEY)}`,
+      { signal: AbortSignal.timeout(APPS_SCRIPT_TIMEOUT_MS) });
+  } catch {
+    throw new HttpError(504, "apps script timeout");
+  }
   const body = await r.text();
-  if (!r.ok || body.startsWith('{"error"')) throw new HttpError(502, "apps script error");
+  if (!r.ok || body.startsWith('{"error"') || body.startsWith("<")) throw new HttpError(502, "apps script error");
   return body;
 }
 
+// รายการเครื่อง: จำ INDEX_CACHE_SECONDS วินาที, คำขอพร้อมกันเรียก Apps Script ครั้งเดียว,
+// Apps Script ล้มเหลว → ตอบรายการล่าสุดที่เคยได้ (header X-Index-Stale: วินาทีที่ผ่านมา) แทน error
 async function index(request, env, cors) {
   await requireApproved(request, env);
-  const hit = memCache.get("index");
-  let body;
-  if (hit && Date.now() - hit.time < INDEX_CACHE_SECONDS * 1000) body = hit.value;
-  else {
-    body = await appsScript(env, "action=index");
-    memCache.set("index", { time: Date.now(), value: body });
+  const headers = { ...cors, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
+  if (lastGoodIndex && Date.now() - lastGoodIndex.time < INDEX_CACHE_SECONDS * 1000) {
+    return new Response(lastGoodIndex.body, { headers });
   }
-  return new Response(body, { headers: { ...cors, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
+  try {
+    const body = await once("index", () => appsScript(env, "action=index"));
+    lastGoodIndex = { time: Date.now(), body };
+    return new Response(body, { headers });
+  } catch (err) {
+    if (!lastGoodIndex) throw err;
+    const age = Math.round((Date.now() - lastGoodIndex.time) / 1000);
+    return new Response(lastGoodIndex.body, { headers: { ...headers, "X-Index-Stale": String(age) } });
+  }
 }
 
 // ไฟล์ที่ระบุ v (เวลาแก้ไข) → เนื้อหาไม่เปลี่ยนแล้ว จำใน Cache ของ Cloudflare และ browser ได้ถาวร
@@ -281,7 +303,7 @@ async function file(request, env, ctx, cors, url) {
   const v = url.searchParams.get("v") || "";
   if (!FILE_ID_RE.test(id)) throw new HttpError(400, "bad id");
   const headers = { ...cors, "Content-Type": "text/plain; charset=utf-8" };
-  if (!v) return new Response(await appsScript(env, `action=file&id=${id}`), { headers: { ...headers, "Cache-Control": "no-store" } });
+  if (!v) return new Response(await once(`file:${id}`, () => appsScript(env, `action=file&id=${id}`)), { headers: { ...headers, "Cache-Control": "no-store" } });
 
   const memKey = `${id}@${v}`;
   let text = fileMem.get(memKey);
@@ -291,7 +313,7 @@ async function file(request, env, ctx, cors, url) {
     const cached = cache ? await cache.match(cacheKey) : null;
     if (cached) text = await cached.text();
     else {
-      text = await appsScript(env, `action=file&id=${id}`);
+      text = await once(`file:${id}@${v}`, () => appsScript(env, `action=file&id=${id}`));
       if (cache) ctx.waitUntil(cache.put(cacheKey, new Response(text, { headers: { "Cache-Control": "public, max-age=31536000" } })));
     }
     fileMem.set(memKey, text);

@@ -9,7 +9,7 @@ import { initTheme } from "./theme.js";
 import { listTimeZones, setDisplayTimeZone } from "./logformat.js";
 
 // เวอร์ชันที่แสดงบนหัวเว็บ — เปลี่ยนตรงนี้ที่เดียวทุกครั้งที่ release
-export const APP_VERSION = "2.0";
+export const APP_VERSION = "2.1";
 
 const pad = (n) => String(n).padStart(2, "0");
 

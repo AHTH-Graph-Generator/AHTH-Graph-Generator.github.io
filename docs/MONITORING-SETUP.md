@@ -48,14 +48,17 @@ ESP32 Data Logger ──(ทุก 10 นาที)──▶ Google Drive (โ�
    |---|---|
    | `SECRET` | APPS_SCRIPT_KEY จากขั้นที่ 0 |
    | `FOLDER_ID` | ID โฟลเดอร์ Drive |
-4. กลับหน้า Editor → เลือกฟังก์ชัน **`testIndex`** → **Run** → อนุญาตสิทธิ์
+4. **เปิดบริการ Drive API** (ทำให้สร้างรายการไฟล์เร็วขึ้นหลายเท่า): แถบซ้ายของ Editor → **Services ＋** → เลือก **Drive API**
+   (Version **v3**, Identifier **Drive**) → **Add**
+5. กลับหน้า Editor → เลือกฟังก์ชัน **`testIndex`** → **Run** → อนุญาตสิทธิ์
    (ถ้าเจอ "Google hasn't verified this app" → Advanced → Go to ahth-drive-reader — เป็นสคริปต์ของเราเอง)
-   → **Execution log** ต้องเห็นรายชื่อ device เช่น `Q003` พร้อมรายการไฟล์
-5. เลือก **`testMail`** → **Run** → อนุญาตสิทธิ์ส่งอีเมล → ต้องได้รับอีเมลทดสอบ
-6. **Deploy → New deployment** → ⚙️ เลือก **Web app**
+   → **Execution log** บรรทัดแรกต้องเป็น **"วิธีอ่าน: Drive API (เร็ว)"** พร้อมเวลาที่ใช้ แล้วตามด้วยรายชื่อ device เช่น `Q003`
+   (ถ้าขึ้น "DriveApp (ช้า …)" แปลว่ายังไม่ได้เปิด Drive API ในข้อ 4)
+6. เลือก **`testMail`** → **Run** → อนุญาตสิทธิ์ส่งอีเมล → ต้องได้รับอีเมลทดสอบ
+7. **Deploy → New deployment** → ⚙️ เลือก **Web app**
    - Execute as: **Me** · Who has access: **Anyone** → **Deploy**
    - คัดลอก **Web app URL** (ลงท้าย `/exec`) = **APPS_SCRIPT_URL**
-7. ทดสอบ: เปิด `<Web app URL>?action=index` ในเบราว์เซอร์ (ไม่ใส่ key) → ต้องได้ `{"error":"unauthorized"}`
+8. ทดสอบ: เปิด `<Web app URL>?action=index` ในเบราว์เซอร์ (ไม่ใส่ key) → ต้องได้ `{"error":"unauthorized"}`
 
 > "Anyone" = Worker เรียกได้โดยไม่ต้อง login Google — ความปลอดภัยอยู่ที่รหัสลับ คนไม่มีรหัสได้แค่ `unauthorized`
 > **แก้โค้ดทุกครั้ง** ต้อง Deploy → **Manage deployments** → ✏️ → Version: **New version** → Deploy (URL เดิมไม่เปลี่ยน)
@@ -139,6 +142,7 @@ $h = @{ Authorization = "Bearer $($r.token)" }
 | `server error` ทุกคำขอ | ยังไม่ได้ผูก KV `USERS` หรือไม่ได้ตั้ง `SESSION_SECRET` | ทำขั้นที่ 2 ข้อ 3–4 |
 | ไม่มี device ในรายการ | ไม่มีไฟล์ใน 62 วัน หรือชื่อไฟล์ไม่ตรง `uart_log_DataLogger_<device>_<YYYY-MM-DD>.csv` | ตรวจชื่อไฟล์ใน Drive |
 | เว็บขึ้น CORS error | โดเมนเว็บไม่อยู่ใน `ALLOWED_ORIGINS` ใน worker.js | เพิ่มโดเมน แล้ว Deploy Worker ใหม่ |
+| หน้า Monitoring ช้า / "ระบบตอบช้า — แสดงรายการเครื่องเมื่อ … นาทีที่แล้ว" | Apps Script สร้างรายการช้า (ยังไม่ได้เปิด Drive API) | เปิด Drive API (ขั้นที่ 1 ข้อ 4) → Run `testIndex` ต้องขึ้น "Drive API (เร็ว)" → Deploy New version |
 | ทุก device ขึ้น Offline ทั้งที่ ESP32 ทำงาน | นาฬิกาเครื่องคนดูเพี้ยน / ESP32 อัปโหลดช้ากว่า 25 นาที | เปิด Set time automatically / ปรับ `OFFLINE_MINUTES` ใน `js/config.js` |
 
 ## เปลี่ยนรหัสลับ (ถ้าสงสัยว่าหลุด)
