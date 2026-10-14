@@ -18,6 +18,9 @@
 //   POST /auth/apply {name, department, reason}     ขอสิทธิ์ → pending + อีเมลแจ้งแอดมิน
 //   GET  /index                                     รายการ device (approved เท่านั้น)
 //   GET  /file?id=<file id>&v=<modified>            CSV ดิบ (approved เท่านั้น)
+//   GET  /files?f=<id>@<modified>,…                 หลายไฟล์ในคำขอเดียว → {files:{id:ข้อความ}, errors:{id:สาเหตุ}}
+//                                                   ไฟล์ที่ยังไม่มีใน cache รวมไปขอ Apps Script ครั้งเดียว
+//   ทุกคำตอบข้อมูลมี header Server-Timing (auth / cache / as = Apps Script / gs = เวลาทำงานในสคริปต์) — เว็บใช้บอกว่าช้าที่ไหน
 //   GET  /admin/users                               รายชื่อผู้ใช้ทั้งหมด (แอดมินเท่านั้น)
 //   POST /admin/users {email, action}               action: approve | reject | revoke | delete
 // ============================================================
@@ -28,6 +31,12 @@ const ALLOWED_ORIGINS = [
 ];
 const INDEX_CACHE_SECONDS = 60;     // จำรายการเครื่อง 1 นาที (เว็บถามทุก 1 นาที, ESP32 เขียนทุก 10 นาที)
 const APPS_SCRIPT_TIMEOUT_MS = 25000; // Apps Script ตอบช้าเกินนี้ = ล้มเหลว (ใช้รายการล่าสุดที่เคยได้แทน)
+// รายการเก่ากว่า INDEX_CACHE_SECONDS แต่ไม่เกินนี้ → ตอบรายการเดิมทันที แล้วขอรายการใหม่เบื้องหลัง (ผู้ใช้ไม่ต้องรอ Google ~5 วินาที)
+// เก่ากว่านี้ (เช่นไม่มีใครเปิดนาน) → รอ Apps Script ก่อนตอบ
+const INDEX_STALE_MAX_SECONDS = 15 * 60;
+const INDEX_KV_KEY = "cache:index";    // รายการเครื่องล่าสุดใน KV (ไม่ใช่ข้อมูล log — มีแค่ชื่อ device / ชื่อไฟล์ / เวลา)
+const INDEX_KV_SECONDS = 10 * 60;      // เขียน KV ไม่เกินทุก 10 นาทีต่อ instance (KV ฟรีเขียนได้ 1,000 ครั้ง/วัน)
+const FILES_MAX = 40;                  // /files ขอได้ไม่เกินกี่ไฟล์ต่อครั้ง (เท่ากับ FILES_MAX ใน Code.gs)
 const OTP_TTL_SECONDS = 600;        // รหัส OTP ใช้ได้ 10 นาที
 const OTP_MAX_TRIES = 5;            // ใส่รหัสผิดได้ 5 ครั้งต่อรหัส
 const OTP_PER_HOUR = 5;             // ขอรหัสได้ 5 ครั้ง/ชั่วโมง/อีเมล
@@ -47,6 +56,23 @@ function once(key, fn) {
   if (!inflight.has(key)) inflight.set(key, fn().finally(() => inflight.delete(key)));
   return inflight.get(key);
 }
+// เวลาที่ใช้แต่ละขั้น → header Server-Timing (เช่น auth;dur=3, as;dur=3900;desc="files 6")
+function timer() {
+  const t0 = Date.now();
+  const parts = [];
+  return {
+    async step(name, fn, desc) {
+      const start = Date.now();
+      try { return await fn(); } finally { parts.push({ name, dur: Date.now() - start, desc }); }
+    },
+    add(name, dur, desc) { parts.push({ name, dur, desc }); },
+    header() {
+      return [...parts, { name: "total", dur: Date.now() - t0 }]
+        .map((p) => `${p.name};dur=${p.dur}${p.desc ? `;desc="${String(p.desc).replace(/[^ -~]|"/g, "")}"` : ""}`).join(", ");
+    },
+  };
+}
+
 let lastGoodIndex = null; // { time, body } รายการล่าสุดที่ได้สำเร็จ — Apps Script ล้มเหลวชั่วคราวก็ยังตอบได้
 
 export default {
@@ -62,8 +88,9 @@ export default {
         case "POST /auth/verify": return await verifyCode(request, env, cors);
         case "GET /auth/me": return await me(request, env, cors);
         case "POST /auth/apply": return await apply(request, env, cors);
-        case "GET /index": return await index(request, env, cors);
+        case "GET /index": return await index(request, env, ctx, cors);
         case "GET /file": return await file(request, env, ctx, cors, url);
+        case "GET /files": return await files(request, env, cors, url);
         case "GET /admin/users": return await adminList(request, env, cors);
         case "POST /admin/users": return await adminAction(request, env, cors);
         default: return json({ error: "not found" }, 404, cors);
@@ -86,7 +113,7 @@ function corsHeaders(origin) {
     headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type";
     headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
     headers["Access-Control-Max-Age"] = "86400";
-    headers["Access-Control-Expose-Headers"] = "X-Index-Stale";
+    headers["Access-Control-Expose-Headers"] = "X-Index-Stale, X-Index-Error, Server-Timing";
   }
   return headers;
 }
@@ -272,26 +299,76 @@ async function appsScript(env, query) {
     throw new HttpError(504, "apps script timeout");
   }
   const body = await r.text();
-  if (!r.ok || body.startsWith('{"error"') || body.startsWith("<")) throw new HttpError(502, "apps script error");
+  if (!r.ok || body.startsWith('{"error"') || body.startsWith("<")) {
+    const detail = appsScriptErrorDetail(r.status, body);
+    console.log(`apps script error: ${detail}`); // ดูได้ที่ Cloudflare → Worker → Logs
+    throw new HttpError(502, `apps script error: ${detail}`);
+  }
   return body;
 }
 
-// รายการเครื่อง: จำ INDEX_CACHE_SECONDS วินาที, คำขอพร้อมกันเรียก Apps Script ครั้งเดียว,
-// Apps Script ล้มเหลว → ตอบรายการล่าสุดที่เคยได้ (header X-Index-Stale: วินาทีที่ผ่านมา) แทน error
-async function index(request, env, cors) {
-  await requireApproved(request, env);
-  const headers = { ...cors, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
-  if (lastGoodIndex && Date.now() - lastGoodIndex.time < INDEX_CACHE_SECONDS * 1000) {
-    return new Response(lastGoodIndex.body, { headers });
+// สาเหตุที่ Apps Script ล้มเหลวแบบสั้น ให้รู้ว่าเกิดจากอะไร — ตัดข้อความที่ดูเหมือน ID ยาวๆ ออก (กัน ID โฟลเดอร์ Drive หลุด)
+function appsScriptErrorDetail(status, body) {
+  let text;
+  if (body.startsWith('{"error"')) {
+    try { text = JSON.parse(body).error; } catch { text = body; }
+  } else if (body.startsWith("<")) {
+    const title = /<title>([^<]*)<\/title>/i.exec(body);
+    text = `HTTP ${status} html${title ? ` "${title[1].trim()}"` : ""}`;
+  } else {
+    text = `HTTP ${status}`;
+  }
+  return String(text).replace(/[A-Za-z0-9_-]{20,}/g, "…").slice(0, 160);
+}
+
+// รายการเครื่อง: จำ INDEX_CACHE_SECONDS วินาที, คำขอพร้อมกันเรียก Apps Script ครั้งเดียว
+//   เก่ากว่านั้นแต่ไม่เกิน INDEX_STALE_MAX_SECONDS → ตอบรายการเดิมทันที + ขอรายการใหม่เบื้องหลัง (stale-while-revalidate)
+//   Apps Script ล้มเหลว → ตอบรายการล่าสุดที่เคยได้ แทน error
+//   ตอบรายการเก่ากว่ารอบจำ → header X-Index-Stale = อายุ (วินาที) — เว็บแจ้ง "ระบบตอบช้า" เมื่อเกิน 2 นาที
+//   รายการล่าสุดเก็บใน KV ด้วย (เขียนไม่เกินทุก INDEX_KV_SECONDS) — Worker เริ่ม instance ใหม่ตอน Apps Script ล้มเหลวก็ยังตอบได้
+const fetchIndex = (env) => once("index", async () => {
+  const body = await appsScript(env, "action=index");
+  const now = Date.now();
+  if (!lastGoodIndex || now - (lastGoodIndex.savedAt || 0) > INDEX_KV_SECONDS * 1000) {
+    await env.USERS.put(INDEX_KV_KEY, JSON.stringify({ time: now, body })).catch(() => { /* เขียนไม่ได้ก็ใช้ในหน่วยความจำต่อ */ });
+    lastGoodIndex = { time: now, body, savedAt: now };
+  } else {
+    lastGoodIndex = { ...lastGoodIndex, time: now, body };
+  }
+  return body;
+});
+
+// instance ใหม่ (ไม่มีรายการในหน่วยความจำ) → อ่านรายการล่าสุดจาก KV ครั้งเดียว
+async function loadLastIndex(env) {
+  if (lastGoodIndex) return;
+  const saved = await once("index-kv", () => env.USERS.get(INDEX_KV_KEY, "json").catch(() => null));
+  if (saved && !lastGoodIndex) lastGoodIndex = { ...saved, savedAt: saved.time };
+}
+
+async function index(request, env, ctx, cors) {
+  const tm = timer();
+  await tm.step("auth", () => requireApproved(request, env));
+  await tm.step("kv", () => loadLastIndex(env));
+  const base = { ...cors, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
+  const reply = (body, desc, extra = {}) => {
+    tm.add("index", 0, desc);
+    return new Response(body, { headers: { ...base, ...extra, "Server-Timing": tm.header() } });
+  };
+  const age = lastGoodIndex ? (Date.now() - lastGoodIndex.time) / 1000 : Infinity;
+  if (age < INDEX_CACHE_SECONDS) return reply(lastGoodIndex.body, "cached");
+  if (age < INDEX_STALE_MAX_SECONDS) {
+    ctx.waitUntil(fetchIndex(env).catch(() => { /* ล้มเหลวก็ใช้รายการเดิมต่อ ครั้งหน้าลองใหม่ */ }));
+    return reply(lastGoodIndex.body, `stale ${Math.round(age)}s`, { "X-Index-Stale": String(Math.round(age)) });
   }
   try {
-    const body = await once("index", () => appsScript(env, "action=index"));
-    lastGoodIndex = { time: Date.now(), body };
-    return new Response(body, { headers });
+    return reply(await tm.step("as", () => fetchIndex(env)), "apps script");
   } catch (err) {
     if (!lastGoodIndex) throw err;
-    const age = Math.round((Date.now() - lastGoodIndex.time) / 1000);
-    return new Response(lastGoodIndex.body, { headers: { ...headers, "X-Index-Stale": String(age) } });
+    const staleAge = Math.round((Date.now() - lastGoodIndex.time) / 1000);
+    return reply(lastGoodIndex.body, `fallback ${staleAge}s`, {
+      "X-Index-Stale": String(staleAge),
+      "X-Index-Error": String(err.code || "apps script error").replace(/[^ -~]/g, "?"),
+    });
   }
 }
 
@@ -305,7 +382,7 @@ async function file(request, env, ctx, cors, url) {
   const headers = { ...cors, "Content-Type": "text/plain; charset=utf-8" };
   if (!v) return new Response(await once(`file:${id}`, () => appsScript(env, `action=file&id=${id}`)), { headers: { ...headers, "Cache-Control": "no-store" } });
 
-  const memKey = `${id}@${v}`;
+  const memKey = `file:${id}@${v}`;
   let text = fileMem.get(memKey);
   if (text === undefined) {
     const cacheKey = new Request(`https://ahth-cache.internal/file/${id}/${encodeURIComponent(v)}`);
@@ -316,10 +393,80 @@ async function file(request, env, ctx, cors, url) {
       text = await once(`file:${id}@${v}`, () => appsScript(env, `action=file&id=${id}`));
       if (cache) ctx.waitUntil(cache.put(cacheKey, new Response(text, { headers: { "Cache-Control": "public, max-age=31536000" } })));
     }
-    fileMem.set(memKey, text);
-    if (fileMem.size > FILE_MEM_MAX) fileMem.delete(fileMem.keys().next().value); // ลบตัวเก่าสุด
+    rememberFile(memKey, text);
   }
   return new Response(text, { headers: { ...headers, "Cache-Control": "private, max-age=31536000, immutable" } });
+}
+
+// หลายไฟล์ในคำขอเดียว: ไฟล์ที่จำไว้แล้วตอบทันที ที่เหลือรวมไปขอ Apps Script ครั้งเดียว (action=files)
+//   ไฟล์ที่ผู้ใช้อื่นกำลังขออยู่ (inflight) รอผลเดียวกัน ไม่ขอซ้ำ
+//   URL มีเวลาแก้ไขของทุกไฟล์ → เนื้อหาไม่เปลี่ยน browser จำได้ (private, immutable)
+async function files(request, env, cors, url) {
+  const tm = timer();
+  await tm.step("auth", () => requireApproved(request, env));
+  const wanted = (url.searchParams.get("f") || "").split(",").filter(Boolean).map((x) => {
+    const at = x.indexOf("@");
+    return { id: at < 0 ? x : x.slice(0, at), v: at < 0 ? "" : x.slice(at + 1) };
+  });
+  if (!wanted.length || wanted.length > FILES_MAX) throw new HttpError(400, "bad file list");
+  if (!wanted.every((w) => FILE_ID_RE.test(w.id))) throw new HttpError(400, "bad id");
+
+  const out = {}, errors = {};
+  const missing = [], waits = [];
+  for (const w of wanted) {
+    const key = `file:${w.id}@${w.v}`;
+    const text = fileMem.get(key);
+    if (text !== undefined) out[w.id] = text;
+    else if (inflight.has(key)) {
+      waits.push(inflight.get(key).then((t) => { out[w.id] = t; }, (e) => { errors[w.id] = e.code || "error"; }));
+    } else missing.push(w);
+  }
+  tm.add("cache", 0, `hit ${Object.keys(out).length}/${wanted.length}`);
+
+  if (missing.length) {
+    const batch = appsScriptJson(env, `action=files&ids=${missing.map((w) => w.id).join(",")}`);
+    // ลงทะเบียนทีละไฟล์ใน inflight → คำขออื่นที่ต้องการไฟล์เดียวกันรอผลชุดนี้
+    for (const w of missing) {
+      const key = `file:${w.id}@${w.v}`;
+      once(key, async () => {
+        const res = await batch;
+        const text = res.files && res.files[w.id];
+        if (typeof text !== "string") throw new HttpError(502, (res.errors && res.errors[w.id]) || "missing");
+        rememberFile(key, text);
+        return text;
+      }).catch(() => { /* ผลของคำขอนี้อ่านจาก batch ด้านล่าง */ });
+    }
+    try {
+      const res = await tm.step("as", () => batch, `files ${missing.length}`);
+      const t = res.timing || {};
+      tm.add("gs", t.total || 0, `index ${t.index || 0}ms read ${t.read || 0}ms ${t.method || ""}`);
+      for (const w of missing) {
+        const text = res.files && res.files[w.id];
+        if (typeof text === "string") out[w.id] = text;
+        else errors[w.id] = (res.errors && res.errors[w.id]) || "missing";
+      }
+    } catch (err) {
+      for (const w of missing) errors[w.id] = err.code || "apps script error";
+    }
+  }
+  if (waits.length) await tm.step("wait", () => Promise.all(waits), `shared ${waits.length}`);
+  const allOk = !Object.keys(errors).length;
+  return new Response(JSON.stringify({ files: out, errors }), {
+    headers: {
+      ...cors, "Content-Type": "application/json; charset=utf-8", "Server-Timing": tm.header(),
+      "Cache-Control": allOk ? "private, max-age=31536000, immutable" : "no-store",
+    },
+  });
+}
+
+async function appsScriptJson(env, query) {
+  const body = await appsScript(env, query);
+  try { return JSON.parse(body); } catch { throw new HttpError(502, "apps script error: bad json"); }
+}
+
+function rememberFile(key, text) {
+  fileMem.set(key, text);
+  if (fileMem.size > FILE_MEM_MAX) fileMem.delete(fileMem.keys().next().value); // ลบตัวเก่าสุด
 }
 
 // ---------- แอดมิน ----------

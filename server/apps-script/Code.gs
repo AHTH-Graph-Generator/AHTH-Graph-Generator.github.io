@@ -11,16 +11,20 @@
 // เรียกด้วย:
 //   GET  ?action=index&key=…           → JSON รายการ device + ไฟล์ KEEP_DAYS วันล่าสุด
 //   GET  ?action=file&id=…&key=…       → เนื้อหา CSV ดิบของไฟล์นั้น (เฉพาะไฟล์ในโฟลเดอร์)
+//   GET  ?action=files&ids=a,b,…&key=… → JSON {files:{id:ข้อความ}, errors:{id:สาเหตุ}, timing:{…ms}} หลายไฟล์ในการเรียกครั้งเดียว
+//                                         (Google ใช้เวลาเปิดสคริปต์ ~2–4 วินาทีต่อการเรียก → รวมเป็นครั้งเดียวเร็วกว่าเรียกทีละไฟล์มาก)
 //   POST {"key","action":"mail","to","subject","body"} → ส่งอีเมล (MailApp)
 // แก้โค้ดแล้วต้อง Deploy → Manage deployments → ✏️ → Version: New version ทุกครั้ง
 //
 // ⚠️ ต้องเปิดบริการ Drive API: แถบซ้าย Services ＋ → Drive API (v3) → Add
 //    ใช้ดึงรายการไฟล์ทั้งโฟลเดอร์ในคำขอเดียว (เร็วกว่า DriveApp ที่อ่านทีละไฟล์หลายเท่า)
 //    ถ้ายังไม่เปิด สคริปต์จะใช้ DriveApp แบบเดิมแทน (ช้า)
+// ⚠️ action=files อ่านหลายไฟล์พร้อมกันด้วย UrlFetchApp → หลัง Deploy ต้องกด Run "testFiles" ใน editor 1 ครั้ง แล้ว Allow สิทธิ์ใหม่
 // ============================================================
 
 const KEEP_DAYS = 62; // ดูย้อนหลังได้สูงสุด ~2 เดือน (เว็บเลือกได้ 1–60 วัน)
 const INDEX_CACHE_SECONDS = 60; // จำรายการไฟล์ไว้ 1 นาที (ESP32 เขียนทุก 10 นาที) — ผู้ใช้หลายคนพร้อมกันไม่ต้องค้น Drive ซ้ำ
+const FILES_MAX = 40;             // อ่านได้ไม่เกินกี่ไฟล์ต่อการเรียก
 const NAME_RE = /^uart_log_DataLogger_(.+)_(\d{4}-\d{2}-\d{2})\.csv$/;
 
 function prop_(name) {
@@ -38,6 +42,7 @@ function doGet(e) {
   try {
     if (p.action === "index") return indexText_();
     if (p.action === "file") return fileText_(p.id);
+    if (p.action === "files") return json_(filesJson_(String(p.ids || "").split(",").filter(String)));
     return json_({ error: "bad action" });
   } catch (err) {
     return json_({ error: String(err) });
@@ -58,12 +63,16 @@ function doPost(e) {
 
 // รายการ device เป็นข้อความ JSON — จำใน CacheService INDEX_CACHE_SECONDS วินาที
 function indexText_() {
+  return ContentService.createTextOutput(indexTextRaw_()).setMimeType(ContentService.MimeType.JSON);
+}
+
+function indexTextRaw_() {
   const cache = CacheService.getScriptCache();
   const hit = cache.get("index");
-  if (hit) return ContentService.createTextOutput(hit).setMimeType(ContentService.MimeType.JSON);
+  if (hit) return hit;
   const text = JSON.stringify(buildIndex_());
   if (text.length < 95000) cache.put("index", text, INDEX_CACHE_SECONDS); // CacheService เก็บได้ไม่เกิน 100 KB ต่อค่า
-  return ContentService.createTextOutput(text).setMimeType(ContentService.MimeType.JSON);
+  return text;
 }
 
 // รายการ device + ไฟล์ที่แก้ไขใน KEEP_DAYS วันล่าสุด
@@ -130,6 +139,42 @@ function fileText_(id) {
     .setMimeType(ContentService.MimeType.TEXT);
 }
 
+// หลายไฟล์ในการเรียกครั้งเดียว — ตรวจว่าอยู่ในโฟลเดอร์จากรายการเครื่อง (จำใน CacheService อยู่แล้ว) แทนการถาม Drive ทีละไฟล์
+// อ่านเนื้อหาพร้อมกันด้วย UrlFetchApp.fetchAll (Drive API) — ใช้ไม่ได้ (ยังไม่ได้อนุญาตสิทธิ์) → อ่านทีละไฟล์ด้วย DriveApp
+function filesJson_(ids) {
+  const t0 = Date.now();
+  if (ids.length > FILES_MAX) return { error: "too many files" };
+  const allowed = {};
+  const devices = JSON.parse(indexTextRaw_()).devices;
+  for (const k in devices) devices[k].files.forEach(function (f) { allowed[f.id] = true; });
+  const t1 = Date.now();
+  const files = {}, errors = {};
+  const ok = ids.filter(function (id) {
+    if (!/^[A-Za-z0-9_-]{10,}$/.test(id) || !allowed[id]) { errors[id] = "forbidden"; return false; }
+    return true;
+  });
+  let method = "fetchAll";
+  try {
+    const token = ScriptApp.getOAuthToken();
+    const res = UrlFetchApp.fetchAll(ok.map(function (id) {
+      return { url: "https://www.googleapis.com/drive/v3/files/" + id + "?alt=media&supportsAllDrives=true",
+               headers: { Authorization: "Bearer " + token }, muteHttpExceptions: true };
+    }));
+    res.forEach(function (r, i) {
+      if (r.getResponseCode() === 200) files[ok[i]] = r.getContentText();
+      else errors[ok[i]] = "drive " + r.getResponseCode();
+    });
+  } catch (err) {
+    method = "DriveApp (" + String(err).slice(0, 80) + ")";
+    ok.forEach(function (id) {
+      try { files[id] = DriveApp.getFileById(id).getBlob().getDataAsString(); delete errors[id]; }
+      catch (e) { errors[id] = String(e).slice(0, 120); }
+    });
+  }
+  const t2 = Date.now();
+  return { files: files, errors: errors, timing: { index: t1 - t0, read: t2 - t1, total: t2 - t0, method: method } };
+}
+
 // ส่งอีเมล (รหัส OTP / แจ้งแอดมินว่ามีคนสมัคร / แจ้งผู้ใช้ว่าอนุมัติแล้ว)
 function sendMail_(body) {
   const to = String(body.to || "");
@@ -157,6 +202,15 @@ function testIndex() {
   Logger.log("วิธีอ่าน: " + (fast ? "Drive API (เร็ว)" : "DriveApp (ช้า — ยังไม่ได้เปิด Drive API)") +
     " · " + Object.keys(index.devices).length + " เครื่อง · ใช้เวลา " + (Date.now() - t0) + " ms");
   Logger.log(JSON.stringify(index, null, 2));
+}
+
+// ทดสอบอ่านหลายไฟล์ (และขออนุญาตสิทธิ์ UrlFetchApp ครั้งแรก) — อ่านไฟล์ล่าสุดของทุกเครื่อง
+function testFiles() {
+  const devices = buildIndex_().devices;
+  const ids = Object.keys(devices).map(function (k) { return devices[k].files[devices[k].files.length - 1].id; }).slice(0, FILES_MAX);
+  const res = filesJson_(ids);
+  Logger.log("อ่าน " + Object.keys(res.files).length + "/" + ids.length + " ไฟล์ · error " + Object.keys(res.errors).length +
+    " · วิธี " + res.timing.method + " · ตรวจรายการ " + res.timing.index + " ms · อ่านไฟล์ " + res.timing.read + " ms");
 }
 
 function testMail() {

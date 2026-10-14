@@ -268,18 +268,27 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
 - ไฟล์ CSV ดิบ (`timestamp,raw_hex`, frame 228 byte) เปิดในหน้า analyze ได้ด้วย (ถอดใน worker) ✅ ขั้น 2
 - **โค้ดฝั่งเซิร์ฟเวอร์ (ขั้น 4)** — อยู่ใน repo เพื่อเก็บประวัติ แต่ **ผู้ใช้ deploy เอง** (ไม่ได้รันบน GitHub Pages) คู่มือ: `docs/MONITORING-SETUP.md`
   - `server/apps-script/Code.gs`: `?action=index` (device + ไฟล์ `KEEP_DAYS` = 62 วัน), `?action=file&id=` (เฉพาะไฟล์ในโฟลเดอร์), POST `action=mail`
+    - **`?action=files&ids=a,b,…` อ่านหลายไฟล์ (≤ 40) ในการเรียกครั้งเดียว** — ตรวจว่าอยู่ในโฟลเดอร์จากรายการเครื่อง, อ่านพร้อมกันด้วย `UrlFetchApp.fetchAll` (Drive API)
+      ใช้ไม่ได้ → DriveApp ทีละไฟล์; ส่ง `timing` (index / read / method) กลับมา · ต้อง Run `testFiles` 1 ครั้งเพื่ออนุญาตสิทธิ์ UrlFetchApp
+      (เหตุผล: Google ใช้เวลาเปิดสคริปต์ ~2–4 วินาทีต่อการเรียก + จำกัดงานพร้อมกัน — เดิมเรียกทีละไฟล์ 18 ครั้งทุก 10 นาที → ช้าและโดน 429)
     - **รายการไฟล์ใช้ Drive API v3 (Advanced Service) ดึงทั้งโฟลเดอร์ในคำขอเดียว** + จำใน CacheService 60 วินาที
       (DriveApp อ่านทีละไฟล์ใช้ 7–11 วินาทีที่ ~200 ไฟล์ และ error บ่อยเมื่อผู้ใช้หลายคน — เหลือไว้เป็นทางสำรองถ้ายังไม่เปิด Drive API)
     — ค่าลับใน Script Properties: `SECRET`, `FOLDER_ID`
   - `server/worker/worker.js`: login OTP ทางอีเมล + สมัคร/อนุมัติ + ตรวจสิทธิ์ทุกคำขอ + API แอดมิน — ค่าลับใน Worker secrets:
     `APPS_SCRIPT_KEY`, `SESSION_SECRET`, `ADMIN_EMAIL` + Text `APPS_SCRIPT_URL` + KV `USERS`
     - API: `POST /auth/request-code`, `POST /auth/verify` → token (Bearer, HMAC, 30 วัน), `GET /auth/me`, `POST /auth/apply`,
-      `GET /index`, `GET /file?id=&v=`, `GET|POST /admin/users` (action: approve / reject / revoke / delete)
+      `GET /index`, `GET /file?id=&v=`, **`GET /files?f=<id>@<modified>,…`** (หลายไฟล์ → JSON `{files, errors}`, ไฟล์ที่ไม่มีใน cache รวมเรียก Apps Script ครั้งเดียว,
+      ไฟล์ที่คำขออื่นกำลังโหลดรอผลเดียวกัน), `GET|POST /admin/users` (action: approve / reject / revoke / delete)
+    - **ทุกคำตอบข้อมูลมี `Server-Timing`**: `auth` / `kv` / `cache;desc="hit n/m"` / `as` (รอ Apps Script) / `gs` (เวลาทำงานในสคริปต์) / `total`
     - สถานะผู้ใช้: new → pending (ขอสิทธิ์) → approved / rejected / revoked; `ADMIN_EMAIL` = approved + แอดมินเสมอ
     - OTP 6 หลัก หมดอายุ 10 นาที, ผิดได้ 5 ครั้ง, ขอได้ 5 ครั้ง/ชม./อีเมล · ถอนสิทธิ์มีผลภายใน ~1 นาที
     - ไฟล์ที่มี `?v=<modified>` จำถาวร (หน่วยความจำ Worker + Cache API + browser `private, immutable`) · `/index` จำ 60 วินาที
     - **คำขอพร้อมกันเรียก Apps Script ครั้งเดียว** (`once()`), Apps Script เกิน 25 วินาที = ล้มเหลว,
       **Apps Script ล้มเหลว → ตอบรายการเครื่องล่าสุดที่เคยได้ + header `X-Index-Stale` (วินาที)** แทน error
+    - **stale-while-revalidate**: รายการเก่ากว่า 60 วินาทีแต่ไม่เกิน 15 นาที → ตอบรายการเดิมทันที แล้วขอใหม่เบื้องหลัง (`ctx.waitUntil`)
+      ผู้ใช้ไม่ต้องรอ Google เปิดสคริปต์ (~4 วินาที — วัดแล้ว Drive API ค้นไฟล์เองแค่ ~0.6 วินาที) · เกิน 15 นาที (ไม่มีใครเปิด) = รอ 1 ครั้ง
+    - **รายการเครื่องล่าสุดเก็บใน KV ด้วย** (`cache:index`, เขียนไม่เกินทุก 10 นาที) — Worker เริ่ม instance ใหม่ตอน Apps Script ล้มเหลวก็ยังตอบรายการเดิม (+ `X-Index-Stale`, `X-Index-Error`)
+    - Apps Script ล้มเหลว → ข้อความ error บอกสาเหตุ (`apps script error: <ข้อความจาก Apps Script / HTTP 429 …>`) ตัดข้อความที่ดูเหมือน ID ยาวออก (กัน ID โฟลเดอร์หลุด) + `console.log` ดูได้ใน Cloudflare Logs
     - `ALLOWED_ORIGINS`: GitHub Pages + `http://localhost:8000`
   - **แก้ `Code.gs` / `worker.js` แล้วต้องบอกผู้ใช้ให้ deploy ใหม่** (Apps Script: Manage deployments → New version; Worker: Edit code → Deploy)
   - ทดสอบ worker.js ในเครื่องได้: import ใน browser แล้วเรียก `default.fetch(request, env)` ด้วย KV / Apps Script จำลอง
@@ -299,6 +308,11 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
   - `admin.html` + `js/admin.js` — แท็บ รออนุมัติ (ค่าเริ่มต้น) / อนุมัติแล้ว / ปฏิเสธ-ถอนสิทธิ์ / ยังไม่ขอสิทธิ์, การ์ดผู้ใช้ (ชื่อ, อีเมล, แผนก, เหตุผล, วันที่),
     ปุ่มตามสถานะ (ปฏิเสธ / ถอนสิทธิ์ / ลบ ต้องยืนยันก่อน) — การตรวจว่าเป็นแอดมินอยู่ที่ Worker เท่านั้น
   - `js/monitor-api.js` — จุดเดียวที่ดึงข้อมูล: `getIndex()`, `getFileText()` (จำไฟล์ตาม `modified`), `filesInRange()`, `isOnline()`, `joinCsv()` + ข้อความเวลา `formatAgo()` / `formatIso()`
+    - **`prefetchFiles(files)`** โหลดไฟล์ของทุกเครื่องในคำขอเดียว (หน้า monitor: ทุกเครื่อง 2 วัน · หน้ากราฟ device: วันเก่า กับ 2 วันล่าสุด แยกคำขอ ให้ชุดเก่า browser จำได้)
+      ไฟล์ที่โหลดไม่สำเร็จไม่ขอซ้ำทีละไฟล์ (กัน Apps Script ถูกเรียกรัว)
+    - **บอกว่าช้า / error ที่ไหน (ผู้ใช้ขอ)**: `auth.js` บันทึกเวลาของทุกคำขอ + `Server-Timing` → `describeTiming()` แยก เครือข่าย / Worker / Google (เปิดสคริปต์ · อ่าน Drive) / cache
+      หน้า monitor แสดงบรรทัด "เวลาที่ใช้ … → ปกติ / ช้าที่ Google Apps Script / ช้าที่เครือข่ายของเครื่องนี้" ใต้ "ตรวจสอบล่าสุด" (ช้า ≥ 2 วินาที = พื้นเหลือง),
+      หน้ากราฟ device แสดงเมื่อชี้ที่เวลาตรวจสอบล่าสุด · `explainError()` ต่อท้ายข้อความ error ด้วย "สาเหตุ: …" (เน็ต / timeout / โควตา 429 / ต้องอนุญาตสิทธิ์ / Apps Script / Worker)
   - `monitor.html` + `js/monitor.js` — **การ์ดต่อ 1 device (ผู้ใช้กำหนด)**:
     1. ชื่อ + สถานะ (3 แบบ ด้านล่าง)
     2. **ซอฟต์แวร์** + **ข้อมูล ณ** (เวลาของแถวที่แสดง, "(ล่าสุด)" ถ้าเป็นแถวล่าสุด) — อยู่เหนือกราฟ
@@ -320,6 +334,8 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
     · การ์ดอ่านไฟล์ 2 วันล่าสุดของ device
   - **สถานะของ device (ระบบจริง)** — `deviceStatus()` ใน `monitor-api.js` ใช้ทั้งหน้า monitor และหน้ากราฟ device:
     - `lastModified` = เวลาที่ไฟล์ใน Google Drive ถูกแก้ล่าสุด (ESP32 เขียนทุก 10 นาที) เทียบกับนาฬิกาเครื่องคนดู
+    - **ประเมินสถานะ ณ เวลาที่ได้รายการเครื่อง** (`index.__asOf`) ไม่ใช่เวลาปัจจุบัน — เชื่อมต่อไม่สำเร็จ = แสดงสถานะเดิม + "แสดงสถานะ ณ HH:mm:ss"
+      (เดิมรายการเก่าถูกเทียบกับนาฬิกาปัจจุบัน → ทุกเครื่องกลายเป็น Offline ทั้งที่ยังทำงาน)
     - **Offline** (เทา) = ไฟล์ไม่ถูกแก้เกิน `OFFLINE_MINUTES` (25)
     - **Online · ไม่มีข้อมูลจากตู้** (เหลือง) = ไฟล์ยังถูกแก้ แต่เวลาของแถวข้อมูลล่าสุด (เวลาไทย → เวลาจริง) เก่ากว่า `lastModified` เกิน 25 นาที
       = ESP32 ต่อเน็ตได้แต่ไม่ได้ข้อมูลจากตู้ → การ์ดแสดงข้อความ "ข้อมูลจากตู้ไม่เปลี่ยนตั้งแต่ … ตรวจสอบการเชื่อมต่อกับตู้"
@@ -370,7 +386,7 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
 
 ### หัวเว็บ / ท้ายเว็บ
 - หัวเว็บ: `AHTH Graph Generator` ต่อท้ายด้วย **`Release version X.Y`** — เลขเวอร์ชันอยู่ที่ `APP_VERSION` ใน `js/site.js` ที่เดียว (ทุกหน้าใช้ร่วมกัน)
-  (ตอนนี้ **2.1**) ต้องเปลี่ยนทุกครั้งที่ release
+  (ตอนนี้ **2.2**) ต้องเปลี่ยนทุกครั้งที่ release
 - มุมขวาบน: ปุ่ม **สลับโหมดสว่าง / มืด** (☀️ / 🌙 แสดงโหมดที่จะสลับไป) อยู่ข้างปุ่ม TH/EN — โค้ดใน `js/theme.js`
   - ครั้งแรกใช้ตามเครื่องผู้ใช้, กดแล้วจำไว้ใน localStorage `theme`, ตั้งค่าตั้งแต่ `<head>` กันหน้าจอกระพริบ
   - สีโหมดมืดอยู่ใต้ `:root[data-theme="dark"]` ใน style.css; สลับโหมดแล้วสร้างกราฟใหม่ (คงช่วง zoom)

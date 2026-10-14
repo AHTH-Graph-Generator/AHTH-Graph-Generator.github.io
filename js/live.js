@@ -11,7 +11,7 @@ import { showAuthGate, renderUserBar } from "./login-ui.js";
 import { ApiError } from "./auth.js";
 import { REFRESH_MS, DAY_OPTIONS, DEFAULT_DAYS } from "./config.js";
 import {
-  getIndex, getFileText, filesInRange, deviceStatus, lastRecordTime, ageMinutes, joinCsv, isDemo, formatAgo, formatIso, mapLimit, onResume,
+  getIndex, getFileText, prefetchFiles, describeTiming, explainError, filesInRange, deviceStatus, lastRecordTime, ageMinutes, joinCsv, isDemo, formatAgo, formatIso, mapLimit, onResume,
 } from "./monitor-api.js";
 
 const MSG = {
@@ -85,17 +85,22 @@ async function refresh(opts = {}) {
   if (state.busy) return;
   state.busy = true;
   $("live-sync").classList.add("spinning"); // ไอคอนหมุนระหว่างปรับปรุงข้อมูล
+  const t0 = performance.now();
   try {
     const index = await getIndex();
     state.checked = new Date();
     state.error = null;
     const info = index.devices[state.device];
     state.info = info || null;
+    state.asOf = index.__asOf;
     if (!info) { showError(t(MSG.notFound, { name: state.device })); return; }
     const files = filesInRange(info, state.days);
     if (!files.length) { showError(t(MSG.noFiles)); return; }
     const key = `${state.days}|${files.map((f) => `${f.id}@${f.modified}`).join("|")}`;
     if (opts.reset || opts.force || key !== state.loadedKey) {
+      // ไฟล์ของวันก่อนๆ (ไม่เปลี่ยนแล้ว) กับ 2 วันล่าสุด (เปลี่ยนทุก 10 นาที) แยกคำขอ → ชุดเก่า URL เดิม browser จำได้
+      const recent = files.slice(-2);
+      await Promise.all([prefetchFiles(files.slice(0, -2)), prefetchFiles(recent)]);
       const texts = await mapLimit(files, FILE_CONCURRENCY, getFileText);
       state.lastRecord = lastRecordTime(texts);
       const blob = new Blob([joinCsv(texts)], { type: "text/csv" });
@@ -104,8 +109,11 @@ async function refresh(opts = {}) {
     }
   } catch (err) {
     if (err instanceof ApiError && (err.status === 401 || err.status === 403)) { location.reload(); return; }
-    state.error = t(MSG.failed, { message: err.message || String(err) });
+    const message = err.message || String(err);
+    const cause = explainError(message);
+    state.error = t(MSG.failed, { message }) + (cause ? ` · ${cause}` : "");
   } finally {
+    state.timing = describeTiming(performance.now() - t0) || state.timing;
     state.busy = false;
     $("live-sync").classList.remove("spinning");
     render();
@@ -140,13 +148,15 @@ function render() {
 
   const pill = $("live-status");
   const info = state.info;
-  const status = info ? deviceStatus(info, state.lastRecord) : null;
+  const status = info ? deviceStatus(info, state.lastRecord, state.asOf) : null;
   pill.textContent = status ? t(MSG[`status_${status}`]) : "";
   pill.className = `status-pill ${status || ""}`;
   $("live-last").textContent = info
     ? `${formatIso(info.lastModified)} (${formatAgo(ageMinutes(info.lastModified))})` : "–";
   $("live-checked").textContent = (state.checked ? state.checked.toLocaleTimeString("en-GB") : "–") +
     (state.paused ? ` ${t(MSG.paused)}` : "");
+  // ชี้ที่เวลาตรวจสอบล่าสุด = เวลาที่ใช้ แยก เครือข่าย / Worker / Google
+  $("live-checked").title = state.timing ? `${state.timing.text} → ${state.timing.verdict}` : "";
 
   const msg = $("live-error");
   if (msg) msg.remove();

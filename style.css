@@ -181,6 +181,9 @@ body.live-mode #dropzone, body.live-mode .sample-line { display: none; }
 .monitor-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; margin: 8px 0 16px; }
 .monitor-head h1 { font-size: 1.4rem; margin-bottom: 4px; }
 .monitor-checked { margin: 0; }
+/* เวลาที่ใช้ครั้งล่าสุด (เครือข่าย / Worker / Google) — ช้า = พื้นเหลือง */
+.monitor-timing { margin: 4px 0 0; max-width: 640px; font-size: 0.75rem; text-align: right; }
+.monitor-timing.slow { color: var(--text); background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 6px; padding: 2px 8px; }
 .monitor .message { margin-bottom: 14px; }
 .monitor-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; }
 .monitor-tools input[type="search"] {

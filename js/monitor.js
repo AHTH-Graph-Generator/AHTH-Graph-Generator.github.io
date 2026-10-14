@@ -17,7 +17,7 @@ import { t, onLanguageChange, getLang } from "./i18n.js";
 import { onThemeChange } from "./theme.js";
 import { REFRESH_MS, PREVIEW_HOURS } from "./config.js";
 import {
-  getIndex, getFileText, filesInRange, deviceStatus, ageMinutes, isDemo, formatAgo, formatIso, mapLimit, onResume,
+  getIndex, getFileText, prefetchFiles, describeTiming, explainError, filesInRange, deviceStatus, ageMinutes, isDemo, formatAgo, formatIso, mapLimit, onResume,
 } from "./monitor-api.js";
 import { isEspHeader, decodeEspFields, ESP_COLUMN_NAMES } from "./espdecoder.js";
 import {
@@ -55,6 +55,9 @@ const MSG = {
   stale:     { th: "ระบบตอบช้า — แสดงรายการเครื่องเมื่อ {n} นาทีที่แล้ว จะลองใหม่อัตโนมัติ", en: "The server is slow — showing the device list from {n} min ago. Retrying automatically." },
   loading:   { th: "กำลังโหลดข้อมูล…", en: "Loading…" },
   failed:    { th: "เชื่อมต่อระบบไม่สำเร็จ ({message}) — จะลองใหม่อัตโนมัติ", en: "Could not connect ({message}). Retrying automatically." },
+  cause:     { th: "สาเหตุ: {cause}", en: "Cause: {cause}" },
+  fileFail:  { th: "โหลดข้อมูลบางเครื่องไม่สำเร็จ ({message}) — จะลองใหม่อัตโนมัติ", en: "Some devices could not be loaded ({message}). Retrying automatically." },
+  failedAsOf:{ th: "เชื่อมต่อระบบไม่สำเร็จ ({message}) — แสดงสถานะ ณ {time} จะลองใหม่อัตโนมัติ", en: "Could not connect ({message}). Showing status as of {time}. Retrying automatically." },
 };
 const SENSOR_ERRORS = ["Cabin[0].airTemp.Err", "Cabin[1].airTemp.Err", "Cabin[0].evaTemp.Err", "Cabin[1].evaTemp.Err"];
 // เซนเซอร์บนการ์ด: ลำดับ + ชื่อย่อ (ผู้ใช้กำหนด เฉพาะหน้านี้ — หน้ากราฟเต็มยังใช้ชื่อเต็ม)
@@ -110,6 +113,7 @@ async function refresh() {
   if (state.busy) return;
   state.busy = true;
   $("mon-sync").classList.add("spinning"); // ไอคอนหมุนระหว่างปรับปรุงข้อมูล
+  const t0 = performance.now();
   try {
     const index = await getIndex();
     state.index = index;
@@ -117,6 +121,13 @@ async function refresh() {
     state.error = null;
     state.checked = new Date();
     render(); // แสดงการ์ด (สถานะ) ทันที ไม่ต้องรอข้อมูลทุกเครื่อง
+    // ไฟล์ของทุกเครื่องในคำขอเดียว (Worker เรียก Apps Script ครั้งเดียว) — ไม่สำเร็จก็ยังแสดงสถานะ + แจ้งสาเหตุ
+    try {
+      await prefetchFiles(Object.values(index.devices).flatMap((dev) => filesInRange(dev, 2)));
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) throw err;
+      state.error = withCause(t(MSG.fileFail, { message: err.message || String(err) }), err.message);
+    }
     await mapLimit(Object.entries(index.devices), FILE_CONCURRENCY, async ([name, dev]) => {
       try { state.data.set(name, await loadDeviceData(dev)); } catch { /* แสดงเฉพาะสถานะ */ }
       state.loaded.add(name);
@@ -125,13 +136,23 @@ async function refresh() {
   } catch (err) {
     // token หมดอายุ / ถูกถอนสิทธิ์ระหว่างใช้งาน → โหลดหน้าใหม่ให้ขึ้นหน้าเข้าสู่ระบบ
     if (err instanceof ApiError && (err.status === 401 || err.status === 403)) { location.reload(); return; }
-    state.error = t(MSG.failed, { message: err.message || String(err) });
+    const message = err.message || String(err);
+    state.error = withCause(state.index
+      ? t(MSG.failedAsOf, { message, time: new Date(state.index.__asOf).toLocaleTimeString("en-GB") })
+      : t(MSG.failed, { message }), message);
   } finally {
+    state.timing = describeTiming(performance.now() - t0) || state.timing;
     state.busy = false;
     state.hovering = false;
     $("mon-sync").classList.remove("spinning");
     render();
   }
+}
+
+// ต่อท้ายข้อความ error ด้วยสาเหตุที่อ่านเข้าใจ (ถ้ารู้)
+function withCause(text, code) {
+  const cause = explainError(code);
+  return cause ? `${text} · ${t(MSG.cause, { cause })}` : text;
 }
 
 function deviceList() {
@@ -140,7 +161,7 @@ function deviceList() {
   return Object.entries(state.index.devices)
     .map(([name, dev]) => {
       const data = state.data.get(name);
-      return { name, dev, data, status: deviceStatus(dev, data ? data.last.time : null) };
+      return { name, dev, data, status: deviceStatus(dev, data ? data.last.time : null, state.index.__asOf) };
     })
     .sort((a, b) => (order[a.status] - order[b.status]) || a.name.localeCompare(b.name, undefined, { numeric: true }));
 }
@@ -151,6 +172,12 @@ function render() {
   $("mon-error").hidden = !notice;
   $("mon-error").textContent = notice;
   $("mon-checked").textContent = state.checked ? state.checked.toLocaleTimeString("en-GB") : "–";
+  const timing = $("mon-timing");
+  timing.hidden = !state.timing;
+  if (state.timing) {
+    timing.textContent = `${state.timing.text} → ${state.timing.verdict}`;
+    timing.classList.toggle("slow", state.timing.slow);
+  }
   $("mon-search").placeholder = t(MSG.search);
 
   const all = deviceList();

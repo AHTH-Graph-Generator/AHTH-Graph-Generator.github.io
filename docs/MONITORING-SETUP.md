@@ -61,6 +61,9 @@ ESP32 Data Logger ──(ทุก 10 นาที)──▶ Google Drive (โ�
 8. ทดสอบ: เปิด `<Web app URL>?action=index` ในเบราว์เซอร์ (ไม่ใส่ key) → ต้องได้ `{"error":"unauthorized"}`
 
 > "Anyone" = Worker เรียกได้โดยไม่ต้อง login Google — ความปลอดภัยอยู่ที่รหัสลับ คนไม่มีรหัสได้แค่ `unauthorized`
+6. เลือกฟังก์ชัน **`testFiles`** → **Run** → อนุญาตสิทธิ์ (ขอสิทธิ์ "เชื่อมต่อบริการภายนอก" เพิ่ม — ใช้อ่านหลายไฟล์พร้อมกัน)
+   → Execution log ต้องขึ้น `อ่าน 18/18 ไฟล์ · error 0 · วิธี fetchAll` (ถ้าขึ้น `DriveApp (…)` = ยังอ่านได้แต่ช้ากว่า)
+
 > **แก้โค้ดทุกครั้ง** ต้อง Deploy → **Manage deployments** → ✏️ → Version: **New version** → Deploy (URL เดิมไม่เปลี่ยน)
 
 ---
@@ -142,6 +145,9 @@ $h = @{ Authorization = "Bearer $($r.token)" }
 | `server error` ทุกคำขอ | ยังไม่ได้ผูก KV `USERS` หรือไม่ได้ตั้ง `SESSION_SECRET` | ทำขั้นที่ 2 ข้อ 3–4 |
 | ไม่มี device ในรายการ | ไม่มีไฟล์ใน 62 วัน หรือชื่อไฟล์ไม่ตรง `uart_log_DataLogger_<device>_<YYYY-MM-DD>.csv` | ตรวจชื่อไฟล์ใน Drive |
 | เว็บขึ้น CORS error | โดเมนเว็บไม่อยู่ใน `ALLOWED_ORIGINS` ใน worker.js | เพิ่มโดเมน แล้ว Deploy Worker ใหม่ |
+| บรรทัด "เวลาที่ใช้" (ใต้ ตรวจสอบล่าสุด) พื้นเหลือง | "ช้าที่ Google Apps Script" = Google เปิดสคริปต์ช้า / "ช้าที่เครือข่ายของเครื่องนี้" = เน็ตของเครื่องคนดู | Google: ดู Apps Script → Executions · เครือข่าย: ลองเน็ตอื่น / ถามฝ่าย IT ว่าปิดกั้น `workers.dev` ไหม |
+| error มี "สาเหตุ: Google จำกัดจำนวนการเรียก" (HTTP 429 / too many) | เรียก Apps Script เกินโควตา / พร้อมกันมากเกินไป | รอสักครู่ (ระบบลองใหม่เอง) · ตรวจว่าใช้ Code.gs + worker.js ล่าสุด (โหลดหลายไฟล์ในการเรียกครั้งเดียว) |
+| error มี "Apps Script ต้องอนุญาตสิทธิ์ใหม่" / ข้อความ authorization | แก้ Code.gs แล้วมีสิทธิ์ใหม่ที่ยังไม่ได้อนุญาต | เปิด editor → Run `testFiles` → Allow → Deploy New version |
 | หน้า Monitoring ช้า / "ระบบตอบช้า — แสดงรายการเครื่องเมื่อ … นาทีที่แล้ว" | Apps Script สร้างรายการช้า (ยังไม่ได้เปิด Drive API) | เปิด Drive API (ขั้นที่ 1 ข้อ 4) → Run `testIndex` ต้องขึ้น "Drive API (เร็ว)" → Deploy New version |
 | ทุก device ขึ้น Offline ทั้งที่ ESP32 ทำงาน | นาฬิกาเครื่องคนดูเพี้ยน / ESP32 อัปโหลดช้ากว่า 25 นาที | เปิด Set time automatically / ปรับ `OFFLINE_MINUTES` ใน `js/config.js` |
 

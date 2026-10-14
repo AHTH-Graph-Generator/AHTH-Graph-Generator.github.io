@@ -9,6 +9,11 @@ import { WORKER_URL } from "./config.js";
 
 const TOKEN_KEY = "ahthToken";
 
+// บันทึกคำขอล่าสุด (เวลาที่ใช้ทั้งหมดที่เครื่องนี้ + Server-Timing จาก Worker) — หน้า Monitoring ใช้บอกว่าช้าที่ไหน
+// { path, ms, status, server: "auth;dur=3, as;dur=3900…" }  · takeCalls() เอาออกไปใช้แล้วล้าง
+const calls = [];
+export const takeCalls = () => calls.splice(0);
+
 export class ApiError extends Error {
   constructor(status, code) { super(code); this.status = status; this.code = code; }
 }
@@ -27,19 +32,26 @@ export async function api(path, { method = "GET", body, raw = false, cache = "no
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   let r;
+  const t0 = performance.now();
   try {
     r = await fetch(`${WORKER_URL}${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, cache });
   } catch (err) {
+    calls.push({ path, ms: performance.now() - t0, status: 0, server: "" });
     throw new ApiError(0, "network");
   }
+  const call = { path, ms: 0, status: r.status, server: r.headers.get("Server-Timing") || "" };
+  calls.push(call);
+  if (calls.length > 50) calls.shift();
   if (!r.ok) {
+    call.ms = performance.now() - t0;
     let code = `http ${r.status}`;
     try { code = (await r.json()).error || code; } catch { /* ไม่ใช่ JSON */ }
     if (r.status === 401) setToken(null);
     throw new ApiError(r.status, code);
   }
-  if (raw) return r.text();
+  if (raw) { const text = await r.text(); call.ms = performance.now() - t0; return text; }
   const json = await r.json();
+  call.ms = performance.now() - t0; // รวมเวลาดาวน์โหลดเนื้อหา
   // Worker ตอบรายการเครื่องรุ่นเก่า (Apps Script ช้า/ล้มเหลวชั่วคราว) → แนบอายุ (วินาที) ไว้ให้หน้าเว็บแจ้ง
   const stale = r.headers.get("X-Index-Stale");
   if (stale && json && typeof json === "object") json.__stale = +stale;
