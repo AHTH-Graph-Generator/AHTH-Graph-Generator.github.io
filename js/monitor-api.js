@@ -10,7 +10,7 @@
 // ============================================================
 
 import { WORKER_URL, OFFLINE_MINUTES } from "./config.js";
-import { api, takeCalls } from "./auth.js";
+import { api, takeCalls, ApiError } from "./auth.js";
 import { t } from "./i18n.js";
 import { formatDateTime, zoneOffset, FILE_TIME_ZONE, parseDateParts, partsToEpoch } from "./logformat.js";
 import { decodeEspFields } from "./espdecoder.js";
@@ -48,12 +48,13 @@ export async function getIndex() {
 
 const fileCache = new Map(); // id → { modified, text }
 const fileErrors = new Map(); // id → { modified, code } โหลดชุดล่าสุดไม่สำเร็จ — ไม่ขอซ้ำทีละไฟล์ (กัน Apps Script ถูกเรียกรัวๆ)
+let batchSupported = true; // false = Worker ยังไม่มี /files
 const FILES_PER_REQUEST = 40; // เท่ากับ FILES_MAX ใน worker.js
 
 // โหลดไฟล์ที่ยังไม่มีในหน่วยความจำทั้งหมดในคำขอเดียว (เกิน 40 ไฟล์แบ่งเป็นหลายคำขอพร้อมกัน)
 // ไม่ throw — ไฟล์ที่ไม่สำเร็จจำสาเหตุไว้ให้ getFileText แจ้ง; error ทั้งชุด (เช่นเน็ตหลุด) throw ต่อให้หน้าเว็บแจ้ง
 export async function prefetchFiles(files) {
-  if (isDemo()) return;
+  if (isDemo() || !batchSupported) return;
   const need = files.filter((f) => {
     const hit = fileCache.get(f.id);
     return !(hit && hit.modified === f.modified);
@@ -64,7 +65,14 @@ export async function prefetchFiles(files) {
     // เรียงตาม id ให้ URL เหมือนเดิมทุกครั้ง → browser จำผลได้ (Worker ตอบ immutable)
     const list = [...chunk].sort((a, b) => a.id.localeCompare(b.id));
     const f = list.map((x) => `${x.id}@${x.modified}`).join(",");
-    const res = await api(`/files?f=${encodeURIComponent(f)}`, { cache: "default" });
+    let res;
+    try {
+      res = await api(`/files?f=${encodeURIComponent(f)}`, { cache: "default" });
+    } catch (err) {
+      // Worker รุ่นเก่ายังไม่มี /files (404) → ใช้ /file ทีละไฟล์แบบเดิม (getFileText) จนกว่าจะ deploy worker.js ใหม่
+      if (err instanceof ApiError && err.status === 404) { batchSupported = false; return; }
+      throw err;
+    }
     for (const x of list) {
       const text = res.files && res.files[x.id];
       if (typeof text === "string") { fileCache.set(x.id, { modified: x.modified, text }); fileErrors.delete(x.id); }

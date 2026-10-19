@@ -130,11 +130,16 @@ export const STATUS_ITEMS = [
   // System state: Cooler.state 0–20 → เส้นประขั้นบันได Y = -60 (0) ถึง -50 (20), แสดงเลขตามค่าจริง
   { key: "systemState", column: "Cooler.state", group: "system", kind: "line", color: "rgb(102, 102, 0)", dash: true,
     th: "System state", en: "System state", rawRange: [0, 20], yRange: [-60, -50], display: "raw", noAvg: true },
-  // ตัวนับประตู: ไม่มีในกราฟ แสดงเฉพาะค่า ณ เคอร์เซอร์ / Min / Max
-  { key: "doorOpenCount", column: "doorsOpenCounter", group: "system", kind: "value",
-    th: "Door open count", en: "Door open count", display: "raw", noAvg: true },
-  { key: "doorCloseCount", column: "doorsClosedTimer", group: "system", kind: "value",
-    th: "Door close count", en: "Door close count", display: "raw", noAvg: true },
+  // สวิตช์ประตู (0 = ปิด, 1 = เปิด) — ไม่แสดงเอง (kind: "hidden") ใช้นับ Total door open ด้านล่าง
+  //   aliases = ชื่อคอลัมน์อื่นที่อาจเจอ (ชื่อตัวแปรใน firmware)
+  { key: "doorFc", column: "Cabin[0].doorSwitch0", aliases: ["Cabin[0].components.doorSwitch[0].value"], kind: "hidden",
+    th: "Refrigerator door", en: "Refrigerator door" },
+  { key: "doorFz", column: "Cabin[1].doorSwitch0", aliases: ["Cabin[1].components.doorSwitch[0].value"], kind: "hidden",
+    th: "Freezer door", en: "Freezer door" },
+  // Total door open (At graph): นับจำนวนครั้งที่ประตูเปิด (1) แล้วปิด (0) = 1 ครั้ง รวมทั้ง 2 ประตู
+  //   ช่วงที่นับ = ช่วงที่ลากเลือก ถ้าไม่ได้เลือก = ช่วงที่แสดงบนกราฟ — ไม่มีในกราฟ (doorCountsIn() ใน main.js)
+  { key: "doorOpenTotal", doorCount: ["doorFc", "doorFz"], group: "system", kind: "value",
+    th: "Total door open (At graph)", en: "Total door open (At graph)" },
   // Power: ProTestTimer เป็นตัวนับ — แถวที่ reset (ไฟดับแล้วเปิดใหม่) → Y = 55, นอกนั้น → Y = 57
   // (หาจุด reset ด้วย counterResets() ใน main.js — ดู POWER_COUNTER)
   { key: "power", column: "ProTestTimer", group: "other", kind: "line", color: "axis",

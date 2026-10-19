@@ -82,7 +82,7 @@ function buildColumnMap(names, lineNo) {
   const statuses = [];
   for (const item of STATUS_ITEMS) {
     if (!item.column) continue;
-    const idx = findColumn(names, item.column);
+    const idx = [item.column, ...(item.aliases || [])].map((n) => findColumn(names, n)).find((i) => i >= 0) ?? -1;
     if (idx < 0) missing.push(item.column);
     else statuses.push({ key: item.key, idx, signed8: !!item.signed8, temp: !!item.temp });
     // heater: คอลัมน์ state คู่กัน → เก็บเป็น "<key>State" (ค่า HEATER_STATE)
@@ -124,23 +124,32 @@ function samplingSeconds(times) {
   return sorted[sorted.length >> 1];
 }
 
-// changeLists: [[{ index, ... }]] รายการจุดเปลี่ยน (software / work mode) — index ถูกเลื่อนตามจุดว่างที่แทรก
+// ช่วงข้อมูลขาด → แทรก 3 แถว ค่าเป็น NaN ทุกคอลัมน์: ต้นช่วง (+1 วินาที) / กลางช่วง / ท้ายช่วง (−1 วินาที)
+//   gapRows: 1 = แถวต้น/ท้ายช่วง (ขอบ), 2 = แถวกลางช่วง (ตัดเส้นให้ช่วงนั้นโล่ง) — หน้าเว็บกำหนดค่าที่วาดเอง (fillGaps ใน main.js)
+//   หน้าเว็บวาดช่วงนี้เป็นค่า "ไม่มีข้อมูล" ของแต่ละรายการ (Power OFF, เซนเซอร์ 0, ชิ้นส่วน OFF …) — Min/Max/เฉลี่ย ไม่นับ (NaN)
+// changeLists: [[{ index, ... }]] รายการจุดเปลี่ยน (software / work mode) — index ถูกเลื่อนตามแถวที่แทรก
 function insertGaps(times, columns, changeLists) {
   const sampling = samplingSeconds(times);
   const threshold = Number.isNaN(sampling) ? Infinity : GAP_MEDIAN_FACTOR * sampling;
   let gaps = 0;
   for (let i = 1; i < times.length; i++) if (times[i] - times[i - 1] > threshold) gaps++;
-  if (gaps === 0) return { times, columns, gapCount: 0, gapThreshold: threshold, sampling };
+  if (gaps === 0) return { times, columns, gapRows: new Uint8Array(times.length), gapCount: 0, gapThreshold: threshold, sampling };
 
-  const outTimes = new Float64Array(times.length + gaps);
-  const outColumns = columns.map((c) => new Float32Array(times.length + gaps));
+  const size = times.length + gaps * 3;
+  const outTimes = new Float64Array(size);
+  const outColumns = columns.map(() => new Float32Array(size));
+  const gapRows = new Uint8Array(size);
   let j = 0;
   const pointers = changeLists.map(() => 0);
   for (let i = 0; i < times.length; i++) {
     if (i > 0 && times[i] - times[i - 1] > threshold) {
-      outTimes[j] = times[i - 1] + 1;
-      outColumns.forEach((c) => { c[j] = NaN; });
-      j++;
+      const a = times[i - 1], b = times[i];
+      for (const [t, kind] of [[a + 1, 1], [(a + b) / 2, 2], [b - 1, 1]]) {
+        outTimes[j] = t;
+        outColumns.forEach((c) => { c[j] = NaN; });
+        gapRows[j] = kind;
+        j++;
+      }
     }
     changeLists.forEach((list, k) => {
       while (pointers[k] < list.length && list[pointers[k]].index === i) list[pointers[k]++].index = j;
@@ -149,7 +158,7 @@ function insertGaps(times, columns, changeLists) {
     columns.forEach((c, k) => { outColumns[k][j] = c[i]; });
     j++;
   }
-  return { times: outTimes, columns: outColumns, gapCount: gaps, gapThreshold: threshold, sampling };
+  return { times: outTimes, columns: outColumns, gapRows, gapCount: gaps, gapThreshold: threshold, sampling };
 }
 
 // ---------- ตัวแปลงไฟล์ทั้งไฟล์ ----------
@@ -317,6 +326,7 @@ function createParser() {
       ini: state.ini,
       metadataMissing: state.metadataMissing,
       times: gapped.times,
+      gapRows: gapped.gapRows,
       series,
       missing: state.columns.missing,
       // { key: Float32Array ค่าดิบ } เฉพาะคอลัมน์สถานะที่มีในไฟล์

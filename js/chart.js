@@ -139,7 +139,7 @@ function interactionPlugin(times, onClickClear, onDoublePick) {
           onDoublePick(u.posToVal(e.clientX - over.getBoundingClientRect().left, "x"));
         });
 
-        touchSupport(u, over, dataMin, dataMax, onDoublePick);
+        touchSupport(u, over, dataMin, dataMax, onDoublePick, onClickClear);
       },
     },
   };
@@ -148,7 +148,7 @@ function interactionPlugin(times, onClickClear, onDoublePick) {
 // ---------- จอสัมผัส (iPad / iPhone / Android) + ปากกา ----------
 //   ปากกา (Apple Pencil / stylus): ลากทิศไหนก็ได้ = เลือกช่วงเสมอ (ไม่เลื่อนหน้าเว็บ)
 //                                  ลอยปากกาเหนือจอ (hover) = เคอร์เซอร์ตามปลายปากกา เหมือนเมาส์
-//   แตะ 1 ครั้ง        → เคอร์เซอร์ไปจุดนั้น (ดูค่า ณ จุดนั้น)
+//   แตะ 1 ครั้ง        → เคอร์เซอร์ไปจุดนั้น (ดูค่า ณ จุดนั้น) + ยกเลิกช่วงที่เลือก (เหมือนคลิกซ้ายเฉยๆ บนคอม)
 //   ลาก 1 นิ้วแนวนอน   → เลือกช่วง (เหมือนลากคลิกซ้าย) · ลากแนวตั้ง = เลื่อนหน้าเว็บตามปกติ
 //   จีบ/ถ่าง 2 นิ้ว     → zoom เข้า/ออก · ลาก 2 นิ้ว → เลื่อนกราฟซ้าย/ขวา
 //   แตะ 2 ครั้งเร็วๆ    → เปิด Real data ณ จุดนั้น (เหมือนดับเบิลคลิก)
@@ -174,7 +174,7 @@ function penTestPanel(over) {
     .forEach((type) => over.addEventListener(type, log, { passive: true }));
 }
 
-function touchSupport(u, over, dataMin, dataMax, onDoublePick) {
+function touchSupport(u, over, dataMin, dataMax, onDoublePick, onClickClear) {
   const rectLeft = () => over.getBoundingClientRect().left;
   const rectTop = () => over.getBoundingClientRect().top;
   const clampX = (x) => Math.min(Math.max(x, 0), over.clientWidth);
@@ -255,7 +255,7 @@ function touchSupport(u, over, dataMin, dataMax, onDoublePick) {
 
   over.addEventListener("touchend", (e) => {
     if (e.touches.length > 0) return; // ยังมีนิ้วค้าง
-    // กันไม่ให้ browser จำลองคลิกเมาส์ตามมา (จะไปยกเลิกช่วงที่เลือก)
+    // กันไม่ให้ browser จำลองคลิกเมาส์ตามมา (ทำงานซ้ำกับท่าแตะ)
     if (e.cancelable) e.preventDefault();
     const t = e.changedTouches[0];
     if (mode === "select") {
@@ -267,6 +267,7 @@ function touchSupport(u, over, dataMin, dataMax, onDoublePick) {
         onDoublePick(u.posToVal(pointX(t), "x"));
       } else {
         setCursorAt(t);
+        onClickClear(); // แตะ 1 ครั้ง = ยกเลิกช่วงที่เลือก (ผู้ใช้กำหนด — เหมือนคลิกบนคอม)
         lastTap = { time: now, x: t.clientX };
       }
     }

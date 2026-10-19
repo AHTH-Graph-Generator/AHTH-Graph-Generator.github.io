@@ -35,6 +35,7 @@ NAMED_COLUMNS = [
     "ProTestTimer", "IceMachine.iceOFF", "IceMachine.firstIce",
     "Cooler.condenserFan", "Cooler.SV.positionIndex",
     "Cooler.state", "doorsOpenCounter", "doorsClosedTimer", "WorkMode",
+    "Cabin[0].doorSwitch0", "Cabin[1].doorSwitch0",
     "Cabin[0].flap", "Cabin[0].display", "Cabin[1].display", "work.Sabbath", "work.EcoExtra",
     "errHighTemp",
     "Cabin[0].fanCutInTemp", "Cabin[0].fanCutOutTemp", "Cabin[1].fanCutInTemp", "Cabin[1].fanCutOutTemp",
@@ -218,6 +219,9 @@ def make_row(header, t, s, door_open, fz_err, sec):
     values["doorsOpenCounter"] = str((sec + 5400 - 600) // 5400)
     closed_for = (sec - 640) % 5400 if sec >= 640 else sec
     values["doorsClosedTimer"] = str(65535 if door_open else max(0, 65535 - closed_for))
+    # สวิตช์ประตู (1 = เปิด): ตู้เย็นตาม door_open (ทุก 90 นาที), ช่องแช่แข็งเปิด 20 วินาทีทุก 2 ชม. — นับ Total door open
+    values["Cabin[0].doorSwitch0"] = "1" if door_open else "0"
+    values["Cabin[1].doorSwitch0"] = "1" if 3000 <= sec % 7200 < 3020 else "0"
     values["IceMachine.firstIce"] = "1" if sec < 600 else "0"            # First ice 10 นาทีแรก
     values["IceMachine.iceOFF"] = "1" if 3600 <= sec % 10800 < 5400 else "0"  # ปิด dial ชั่วคราว
     values["IceMachine.temp.Err"] = "1" if 5000 <= sec % 10800 < 5030 else "0"  # sensor error สั้นๆ

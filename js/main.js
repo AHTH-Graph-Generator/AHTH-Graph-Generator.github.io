@@ -45,6 +45,11 @@ const MSG = {
   noSensorData:   { th: "(0 ทั้งไฟล์)", en: "(all zero)" },
   saveFailed:     { th: "บันทึกรูปไม่สำเร็จ", en: "Could not save the image." },
   notPresent:     { th: "ไม่มี", en: "N/A" },
+  gapNoData:      { th: "ไม่มีข้อมูล", en: "no data" },
+  doorCountTitle: { th: "จำนวนครั้งที่เปิด-ปิดประตู ในช่วงที่เลือก (ไม่ได้เลือก = ช่วงที่แสดงบนกราฟ)", en: "Door open-close count in the selected range (or the visible range if nothing is selected)" },
+  pickColor:      { th: "เปลี่ยนสีบนกราฟ", en: "Change graph color" },
+  resetColor:     { th: "กลับเป็นสีเริ่มต้น", en: "Reset to default color" },
+  colorHint:      { th: "คลิก / ลาก = ลองสี · ดับเบิลคลิก = เลือกแล้วปิด · Esc / คลิกนอกกล่อง = ปิด", en: "Click / drag = try · Double-click = choose and close · Esc / click outside = close" },
   hideGroup:      { th: "ซ่อน", en: "Hide" },
   durDay:         { th: "{n} วัน", en: "{n} d" },
   durHour:        { th: "{n} ชม.", en: "{n} h" },
@@ -297,6 +302,13 @@ function buildItems(result) {
     if (meta.changes) {
       return result[meta.changes].length ? [{ meta, kind: "marker", raw: null, show: true }] : [];
     }
+    if (meta.kind === "hidden") return []; // ใช้คำนวณรายการอื่น ไม่แสดงเอง
+    // Total door open: นับจากสวิตช์ประตูที่มีในไฟล์
+    if (meta.doorCount) {
+      const doors = meta.doorCount.map((key) => ({ meta: STATUS_ITEMS.find((s) => s.key === key), raw: result.status[key] }))
+        .filter((d) => d.raw);
+      return doors.length ? [{ meta, kind: "value", raw: null, doors, show: true }] : [];
+    }
     const raw = result.status[meta.key];
     if (!raw) return [];
     if (meta.heater) return [buildHeaterItem(meta, raw, result.status[`${meta.key}State`], result.sampling)];
@@ -316,7 +328,69 @@ function buildItems(result) {
       values: meta.temp ? toPlotValues(raw) : meta.kind === "line" ? toStepValues(raw, meta) : null,
     }];
   });
-  return [...sensors, ...statuses];
+  const items = [...sensors, ...statuses];
+  fillGaps(items, result.gapRows);
+  return items;
+}
+
+// ---------- ช่วงที่ไม่มีข้อมูล (ข้อมูลขาดเกิน 3 × sampling) ----------
+// worker แทรกแถว ต้นช่วง / กลางช่วง / ท้ายช่วง ไว้ (gapRows 1 = ขอบ, 2 = กลาง; ค่าเป็น NaN) → ค่าที่วาดบนกราฟ (ผู้ใช้กำหนด 2026-10-19):
+//   Power = OFF ลากยาวตลอดช่วง (ตำแหน่ง reset) ให้รู้ว่าไฟดับ
+//   เซนเซอร์ = เส้นขาดตลอดช่วง (จบที่ค่าสุดท้ายก่อนหาย เริ่มใหม่ที่ค่าแรกหลังกลับมา)
+//   ชิ้นส่วน / System state / Heater = ขอบช่วงอยู่ตำแหน่ง OFF จุดเดียว แล้วช่วงกลางโล่ง
+//   แผงควบคุม / Error / Other / Temp work confirm = ไม่วาด (ค่า ณ เคอร์เซอร์ของแผงควบคุม = N/A)
+// เปลี่ยนเฉพาะค่าที่วาด (values) — ค่าดิบ (raw) ยังเป็น NaN → Min / Max / เฉลี่ย ไม่นับช่วงนี้
+
+// { edge, middle } ค่าที่วาดที่แถวขอบ / แถวกลาง (null = ไม่วาด) หรือ null ถ้าไม่ต้องแก้
+function gapPlotValues(item) {
+  if (item.kind !== "line" || item.meta.temp) return null;
+  if (item.meta.counterReset) return { edge: item.meta.yWhenZero, middle: item.meta.yWhenZero }; // Power: ไฟดับตลอดช่วง
+  return { edge: toStepValues([0], item.meta)[0], middle: null }; // ตำแหน่งของค่า 0 = OFF / ปิด
+}
+
+function fillGaps(items, gapRows) {
+  if (!gapRows || !gapRows.some((g) => g !== 0)) return;
+  for (const item of items) {
+    if (!item.values) continue;
+    const y = gapPlotValues(item);
+    if (!y) continue;
+    for (let i = 0; i < gapRows.length; i++) {
+      if (gapRows[i] === 1) item.values[i] = y.edge;
+      else if (gapRows[i] === 2) item.values[i] = y.middle;
+    }
+  }
+}
+
+const gapRowKind = (idx) => (loaded.result.gapRows ? loaded.result.gapRows[idx] : 0);
+
+// ค่า ณ เคอร์เซอร์ในช่วงที่ไม่มีข้อมูล: Power = OFF, แผงควบคุม = N/A,
+// ชิ้นส่วน / System state / Heater = OFF เฉพาะจุดขอบ (ตรงกับที่วาด) — นอกนั้น "–"
+function gapCursorText(item, kind) {
+  if (item.meta.group === "control") return "N/A";
+  if (item.kind !== "line" || item.meta.temp) return "–";
+  if (item.meta.counterReset) return "OFF";
+  if (kind !== 1) return "–";
+  if (item.meta.heater) return "OFF";
+  switch (item.meta.display) {
+    case "onOff": return "OFF";
+    case "valve": return VALVE_POSITIONS[0] ?? "0";
+    case "damper": return "Close";
+    default: return fmtRaw(0);
+  }
+}
+
+// ---------- Total door open ----------
+// จำนวนครั้งที่ประตูเปิด (ค่า ≠ 0) แล้วปิด (0) ในช่วง index [start, end) — นับตอนปิด
+// ประตูเปิดค้างอยู่ตอนต้นช่วงแล้วปิดในช่วง = นับ, ช่วงไม่มีข้อมูล (NaN) ข้าม เทียบกับค่าล่าสุดก่อนหน้า
+function doorOpenCount(raw, start, end) {
+  let count = 0, prev = NaN;
+  for (let i = start; i < end; i++) {
+    const v = raw[i];
+    if (Number.isNaN(v)) continue;
+    if (v === 0 && prev > 0) count++;
+    prev = v;
+  }
+  return count;
 }
 
 // ---------- Power: หาแถวที่ตัวนับ reset ----------
@@ -469,6 +543,232 @@ function resolveColor(color) {
   return getComputedStyle(document.documentElement).getPropertyValue("--muted").trim();
 }
 
+// ---------- สีที่ผู้ใช้เลือกเอง ----------
+// ค่าเริ่มต้น = สีใน logformat.js (ผู้ใช้กำหนด) — ผู้ดูแต่ละคนเปลี่ยนสีของรายการได้เอง จำใน localStorage "seriesColors" { key: "#rrggbb" }
+// (ใช้ได้เฉพาะเครื่อง / browser นั้น ทุกไฟล์ และหน้ากราฟของ device)
+const COLOR_STORAGE_KEY = "seriesColors";
+const customColors = loadCustomColors();
+
+function loadCustomColors() {
+  try { return JSON.parse(localStorage.getItem(COLOR_STORAGE_KEY)) || {}; } catch { return {}; }
+}
+function saveCustomColors() {
+  try { localStorage.setItem(COLOR_STORAGE_KEY, JSON.stringify(customColors)); } catch { /* ไม่มี storage */ }
+}
+
+const colorOf = (item) => customColors[item.meta.key] || resolveColor(item.meta.color || "axis");
+
+// สี CSS ใดๆ → "#rrggbb" (ช่องเลือกสีรับแค่รูปแบบนี้)
+const colorCtx = document.createElement("canvas").getContext("2d");
+function toHex(color) {
+  colorCtx.fillStyle = "#000000";
+  colorCtx.fillStyle = color;
+  return colorCtx.fillStyle;
+}
+
+// เปลี่ยนสี 1 รายการ (null = กลับเป็นสีเริ่มต้น) → กล่องในตารางเปลี่ยนทันที, กราฟสร้างใหม่ (คงช่วงที่แสดง / ช่วงที่เลือก / โน้ต)
+function setItemColor(item, color, { redraw = true } = {}) {
+  if (color) customColors[item.meta.key] = color;
+  else delete customColors[item.meta.key];
+  saveCustomColors();
+  const row = statRows[loaded.items.indexOf(item)];
+  if (row) refreshRowColor(row, item);
+  if (redraw) rebuildChartKeepView();
+}
+
+function rebuildChartKeepView() {
+  if (!loaded || !chart) return;
+  const range = chart.getRange();
+  const selection = chart.getSelection();
+  buildChart();
+  chart.setRange(...range);
+  if (selection) chart.setSelection(selection);
+}
+
+function refreshRowColor(row, item) {
+  const color = colorOf(item);
+  row.style.setProperty("--item", color);
+  const swatch = row.querySelector(".swatch");
+  if (swatch) swatch.replaceWith(createSwatch(item));
+  const btn = row.querySelector(".swatch-btn");
+  if (btn) btn.classList.toggle("custom", !!customColors[item.meta.key]);
+}
+
+// ภาพลักษณะหน้าชื่อ (เส้น / ขั้นบันได / จุด …) = ปุ่มเปลี่ยนสี — กดแล้วเปิดกล่องเลือกสีติดใต้ปุ่ม
+// ไม่ใช้ <input type="color"> เพราะบน Windows บางเครื่องเปิดหน้าต่างเลือกสีของ Windows กลางจอ ปิดยาก และรับดับเบิลคลิกไม่ได้
+function createSwatchButton(item) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "swatch-btn";
+  btn.title = t(MSG.pickColor);
+  btn.setAttribute("aria-label", `${t(MSG.pickColor)}: ${item.meta[getLang()]}`);
+  btn.append(createSwatch(item));
+  btn.addEventListener("click", (e) => {
+    e.preventDefault(); // อยู่ใน <label> ของ checkbox — ไม่ให้กดแล้วเปิด/ปิดเส้น
+    e.stopPropagation();
+    openColorPopover(item, btn);
+  });
+  return btn;
+}
+
+// ---------- กล่องเลือกสี (แบบตัวเลือกสีเต็มรูปแบบ: พื้นที่ความสด/ความสว่าง + แถบเฉดสี) ----------
+// คลิก / ลาก = ลองสี (กล่องรายการเปลี่ยนทันที, กราฟวาดใหม่เมื่อปล่อย) · ดับเบิลคลิก = เลือกแล้วปิด
+// Esc / คลิกนอกกล่อง / ✕ = ปิด (คงสีที่ลองไว้ล่าสุด) · ช่องรหัส #rrggbb + Enter · แถวสีเริ่มต้นของรายการในกราฟ · "กลับเป็นสีเริ่มต้น"
+const popover = { el: null, item: null, close: null };
+
+function hsvToHex(h, sv, v) {
+  const f = (n) => {
+    const k = (n + h / 60) % 6;
+    return Math.round((v - v * sv * Math.max(0, Math.min(k, 4 - k, 1))) * 255).toString(16).padStart(2, "0");
+  };
+  return `#${f(5)}${f(3)}${f(1)}`;
+}
+
+function hexToHsv(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+  let h = 0;
+  if (d) h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return { h: (h * 60 + 360) % 360, s: max ? d / max : 0, v: max };
+}
+
+function openColorPopover(item, anchor) {
+  if (popover.item === item) { closeColorPopover(); return; }
+  closeColorPopover();
+  const defaultHex = () => toHex(resolveColor(item.meta.color || "axis"));
+  let hsv = hexToHsv(toHex(colorOf(item)));
+
+  const box = document.createElement("div");
+  box.className = "color-popover";
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-label", t(MSG.pickColor));
+  box.innerHTML = `
+    <div class="color-popover-head"><span></span><button type="button" class="color-popover-close">✕</button></div>
+    <div class="sv-area"><div class="sv-white"></div><div class="sv-black"></div><div class="sv-thumb"></div></div>
+    <div class="hue-bar"><div class="hue-thumb"></div></div>
+    <div class="color-row defaults"></div>
+    <div class="color-popover-foot">
+      <span class="color-preview"></span><input type="text" class="color-hex" maxlength="7" spellcheck="false">
+      <button type="button" class="link-btn color-default"></button>
+    </div>
+    <p class="color-popover-hint"></p>`;
+  box.querySelector(".color-popover-head span").textContent = item.meta[getLang()];
+  box.querySelector(".color-default").textContent = t(MSG.resetColor);
+  box.querySelector(".color-popover-hint").textContent = t(MSG.colorHint);
+  const sv = box.querySelector(".sv-area"), svThumb = box.querySelector(".sv-thumb");
+  const hue = box.querySelector(".hue-bar"), hueThumb = box.querySelector(".hue-thumb");
+  const hexInput = box.querySelector(".color-hex"), preview = box.querySelector(".color-preview");
+
+  // แถวสีเริ่มต้นของรายการต่างๆ ในกราฟ (ยืมสีกันได้)
+  const defaults = [...new Set(loaded.items.filter((i) => i.kind !== "value").map((i) => toHex(resolveColor(i.meta.color || "axis"))))];
+  const row = box.querySelector(".defaults");
+  for (const hex of defaults) {
+    const cell = document.createElement("button");
+    cell.type = "button";
+    cell.className = "color-cell";
+    cell.style.background = hex;
+    cell.title = hex;
+    cell.addEventListener("click", () => { hsv = hexToHsv(hex); apply(true); });
+    cell.addEventListener("dblclick", () => { hsv = hexToHsv(hex); apply(true); closeColorPopover(); });
+    row.append(cell);
+  }
+
+  const currentHex = () => hsvToHex(hsv.h, hsv.s, hsv.v);
+  function paint() {
+    const hex = currentHex();
+    sv.style.backgroundColor = hsvToHex(hsv.h, 1, 1);
+    svThumb.style.left = `${hsv.s * 100}%`;
+    svThumb.style.top = `${(1 - hsv.v) * 100}%`;
+    hueThumb.style.left = `${(hsv.h / 360) * 100}%`;
+    preview.style.background = hex;
+    if (document.activeElement !== hexInput) hexInput.value = hex;
+  }
+  // redraw = วาดกราฟใหม่ด้วย (ปล่อยเมาส์ / คลิกสีสำเร็จรูป) — ระหว่างลากเปลี่ยนแค่กล่องรายการ (กราฟข้อมูลหลายแสนจุดวาดใหม่ช้า)
+  function apply(redraw) {
+    paint();
+    const hex = currentHex();
+    setItemColor(item, hex === defaultHex() ? null : hex, { redraw });
+  }
+
+  // ลากบนพื้นที่สี / แถบเฉดสี
+  const drag = (area, onPoint) => {
+    area.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      area.setPointerCapture(e.pointerId);
+      const move = (ev) => {
+        const r = area.getBoundingClientRect();
+        onPoint(Math.min(Math.max((ev.clientX - r.left) / r.width, 0), 1), Math.min(Math.max((ev.clientY - r.top) / r.height, 0), 1));
+        apply(false);
+      };
+      const up = () => {
+        area.removeEventListener("pointermove", move);
+        area.removeEventListener("pointerup", up);
+        area.removeEventListener("pointercancel", up);
+        rebuildChartKeepView();
+      };
+      move(e);
+      area.addEventListener("pointermove", move);
+      area.addEventListener("pointerup", up);
+      area.addEventListener("pointercancel", up);
+    });
+    area.addEventListener("dblclick", () => closeColorPopover()); // ดับเบิลคลิก = เลือกสีตรงนั้นแล้วปิด
+  };
+  drag(sv, (x, y) => { hsv.s = x; hsv.v = 1 - y; });
+  drag(hue, (x) => { hsv.h = Math.min(x * 360, 359.9); });
+
+  hexInput.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const v = hexInput.value.trim().replace("#", "");
+    if (!/^[0-9a-f]{6}$/i.test(v)) { hexInput.classList.add("invalid"); return; }
+    hsv = hexToHsv(`#${v.toLowerCase()}`);
+    hexInput.blur();
+    apply(true);
+    closeColorPopover();
+  });
+  hexInput.addEventListener("input", () => hexInput.classList.remove("invalid"));
+  box.querySelector(".color-default").addEventListener("click", () => { hsv = hexToHsv(defaultHex()); apply(true); });
+  box.querySelector(".color-popover-close").addEventListener("click", closeColorPopover);
+
+  document.body.append(box);
+  paint();
+  placePopover(box, anchor);
+
+  const onDown = (e) => { if (!box.contains(e.target) && !anchor.contains(e.target)) closeColorPopover(); };
+  const onKey = (e) => { if (e.key === "Escape") closeColorPopover(); };
+  const onMove = () => placePopover(box, anchor);
+  document.addEventListener("pointerdown", onDown, true);
+  document.addEventListener("keydown", onKey);
+  window.addEventListener("resize", onMove);
+  window.addEventListener("scroll", onMove, true);
+  popover.el = box;
+  popover.item = item;
+  popover.close = () => {
+    document.removeEventListener("pointerdown", onDown, true);
+    document.removeEventListener("keydown", onKey);
+    window.removeEventListener("resize", onMove);
+    window.removeEventListener("scroll", onMove, true);
+  };
+}
+
+// วางกล่องใต้ปุ่ม (ชิดซ้ายของปุ่ม) — ล้นขอบล่าง/ขวาของจอ → ขึ้นด้านบน / เลื่อนเข้ามา
+function placePopover(box, anchor) {
+  const a = anchor.getBoundingClientRect();
+  const w = box.offsetWidth, h = box.offsetHeight;
+  const left = Math.min(a.left, window.innerWidth - w - 8);
+  let top = a.bottom + 6;
+  if (top + h > window.innerHeight - 8) top = Math.max(8, a.top - h - 6);
+  box.style.left = `${Math.max(8, left)}px`;
+  box.style.top = `${top}px`;
+}
+
+function closeColorPopover() {
+  if (!popover.el) return;
+  popover.close();
+  popover.el.remove();
+  popover.el = popover.item = popover.close = null;
+}
+
 function clearResult() {
   if (chart) chart.destroy();
   chart = null;
@@ -490,7 +790,7 @@ function buildChart() {
       // dial ไม่มี Ice maker: ค่า 0 = ไม่มี ไม่ใช่เปิด → ไม่วาดอะไร
       const noDevice = item.absent && item.meta.drawWhen === "zero";
       markerLayers.push({
-        shape: item.meta.shape, color: resolveColor(item.meta.color), y: item.meta.y, show: item.show,
+        shape: item.meta.shape, color: colorOf(item), y: item.meta.y, show: item.show,
         drawWhen: item.meta.drawWhen, raw: noDevice ? null : item.raw,
         // จุดที่ software / work mode เปลี่ยน (จุดแรกของไฟล์ไม่ใช่การเปลี่ยน)
         times: item.meta.changes ? result[item.meta.changes].slice(1).map((c) => c.time)
@@ -499,7 +799,7 @@ function buildChart() {
     } else {
       item.seriesIndex = seriesList.length;
       seriesList.push({
-        label: item.meta.en, color: resolveColor(item.meta.color), values: item.values, show: item.show,
+        label: item.meta.en, color: colorOf(item), values: item.values, show: item.show,
         stepped: item.kind === "line", dash: !!item.meta.dash,
         width: item.meta.behind ? 1 : undefined, // เส้นบางๆ
       });
@@ -520,7 +820,7 @@ function buildChart() {
 function usedColumnNames() {
   const names = [
     ...SENSORS.flatMap((s) => [s.column, s.err]),
-    ...STATUS_ITEMS.flatMap((s) => [s.column, s.stateColumn]),
+    ...STATUS_ITEMS.flatMap((s) => [s.column, ...(s.aliases || []), s.stateColumn]),
     ...SOFTWARE_COLUMNS.no, SOFTWARE_COLUMNS.version, SOFTWARE_COLUMNS.revision, WORK_MODE_COLUMN,
   ].filter(Boolean);
   return new Set(names.map((n) => n.replace(/\s+/g, "").toLowerCase()));
@@ -623,6 +923,7 @@ function renderFileInfo() {
 const groupOf = (item) => item.meta.group ?? "sensor";
 
 function renderStatsTable() {
+  closeColorPopover();
   statRows = loaded.items.map(createStatRow);
   const lang = getLang();
   SLOTS.forEach((slot) => $(`slot-${slot}`).replaceChildren());
@@ -682,7 +983,7 @@ function createSwatch(item) {
   svg.setAttribute("class", "swatch");
   svg.setAttribute("viewBox", "0 0 16 10");
   svg.setAttribute("aria-hidden", "true");
-  const color = resolveColor(item.meta.color);
+  const color = colorOf(item);
   const add = (tag, attrs) => {
     const node = document.createElementNS(NS, tag);
     Object.entries({ stroke: color, fill: "none", "stroke-width": 1.8, ...attrs })
@@ -711,7 +1012,7 @@ function createSwatch(item) {
 function createStatRow(item) {
   const row = document.createElement("div");
   row.className = "stat-item";
-  row.style.setProperty("--item", resolveColor(item.meta.color || "axis"));
+  row.style.setProperty("--item", colorOf(item));
 
   const top = document.createElement("div");
   top.className = "stat-top";
@@ -740,7 +1041,7 @@ function createStatRow(item) {
       setItemVisible(item, box.checked);
       row.classList.toggle("off", !item.show);
     });
-    label.append(box, createSwatch(item), text);
+    label.append(box, createSwatchButton(item), text);
   }
   const cursor = document.createElement("b");
   cursor.className = "num cursor";
@@ -750,6 +1051,20 @@ function createStatRow(item) {
 
   const sub = document.createElement("div");
   sub.className = "stat-sub";
+  if (item.doors) {
+    // Total door open: แยกจำนวนครั้งของแต่ละประตูแทน Min / Max / เฉลี่ย
+    cursor.title = t(MSG.doorCountTitle);
+    item.doors.forEach((d) => {
+      const part = document.createElement("span");
+      const value = document.createElement("b");
+      value.className = "num door";
+      value.textContent = "–";
+      part.append(`${d.meta[getLang()]} `, value);
+      sub.append(part);
+    });
+    row.append(top, sub);
+    return row;
+  }
   [["min", MSG.colMin], ["max", MSG.colMax], ["avg", MSG.colAvgShort]].forEach(([name, msg]) => {
     const part = document.createElement("span");
     const value = document.createElement("b");
@@ -761,6 +1076,7 @@ function createStatRow(item) {
 
   row.classList.toggle("off", !item.show);
   row.append(top, sub);
+  if (item.kind !== "value") refreshRowColor(row, item);
   return row;
 }
 
@@ -804,8 +1120,14 @@ function updateStats() {
   document.getElementById("info-software").textContent = softwareBefore(end) ?? "–";
   document.getElementById("info-workmode").textContent = workModeBefore(end) ?? "–";
   loaded.items.forEach((item, i) => {
-    const [minText, maxText, avgText] = statsText(item, start, end);
     const tr = statRows[i];
+    if (item.doors) { // Total door open: ตัวเลขใหญ่ = รวม, บรรทัดล่าง = แยกแต่ละประตู
+      const counts = item.doors.map((d) => doorOpenCount(d.raw, start, end));
+      tr.querySelector(".cursor").textContent = fmtInt(counts.reduce((a, b) => a + b, 0));
+      tr.querySelectorAll(".door").forEach((b, k) => { b.textContent = fmtInt(counts[k]); });
+      return;
+    }
+    const [minText, maxText, avgText] = statsText(item, start, end);
     tr.querySelector(".min").textContent = minText;
     tr.querySelector(".max").textContent = maxText;
     tr.querySelector(".avg").textContent = avgText;
@@ -820,9 +1142,10 @@ function updateStats() {
 // ข้อความช่อง "ค่า ณ เคอร์เซอร์" ตาม meta.display
 function cursorText(item, idx) {
   const display = item.meta.display;
-  if (item.kind === "sensor") return fmtTemp(item.values[idx]);
   if (display === "software") return "–"; // เวอร์ชันแสดงอยู่บรรทัดเวลาเคอร์เซอร์แล้ว
-  if (item.absent) return t(MSG.notPresent); // ไม่มีชิ้นส่วนนี้ในตู้
+  if (item.absent && item.kind !== "sensor") return t(MSG.notPresent); // ไม่มีชิ้นส่วนนี้ในตู้
+  if (gapRowKind(idx)) return gapCursorText(item, gapRowKind(idx)); // ช่วงที่ไม่มีข้อมูล
+  if (item.kind === "sensor") return fmtTemp(item.values[idx]);
   const v = item.raw[idx];
   if (Number.isNaN(v)) return "–";
   if (display === "onOff") return v === 0 ? "OFF" : "ON";
@@ -867,10 +1190,12 @@ function damperText(raw, idx) {
 function updateCursor(idx) {
   if (!loaded) return;
   const valid = idx != null && idx >= 0 && idx < loaded.result.times.length;
-  el.cursorTime.textContent = valid ? formatDateTime(loaded.result.times[idx]) : "–";
+  el.cursorTime.textContent = valid
+    ? formatDateTime(loaded.result.times[idx]) + (gapRowKind(idx) ? ` (${t(MSG.gapNoData)})` : "") : "–";
   el.cursorSoftware.textContent = valid ? (softwareBefore(idx + 1) ?? "–") : "–";
   el.cursorWorkMode.textContent = valid ? (workModeBefore(idx + 1) ?? "–") : "–";
   loaded.items.forEach((item, i) => {
+    if (item.doors) return; // Total door open = ค่าของช่วง ไม่ใช่ ณ เคอร์เซอร์
     statRows[i].querySelector(".cursor").textContent = valid ? cursorText(item, idx) : "–";
   });
 }
