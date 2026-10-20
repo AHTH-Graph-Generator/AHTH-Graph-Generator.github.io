@@ -83,7 +83,7 @@ function buildColumnMap(names, lineNo) {
   for (const item of STATUS_ITEMS) {
     if (!item.column) continue;
     const idx = [item.column, ...(item.aliases || [])].map((n) => findColumn(names, n)).find((i) => i >= 0) ?? -1;
-    if (idx < 0) missing.push(item.column);
+    if (idx < 0) { if (!item.optional) missing.push(item.column); }
     else statuses.push({ key: item.key, idx, signed8: !!item.signed8, temp: !!item.temp });
     // heater: คอลัมน์ state คู่กัน → เก็บเป็น "<key>State" (ค่า HEATER_STATE)
     if (item.stateColumn) {

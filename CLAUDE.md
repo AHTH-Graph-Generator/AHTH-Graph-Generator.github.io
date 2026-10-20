@@ -168,12 +168,26 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
 | Refrigerator Fan | `Cabin[0].fan` (0–100) | COMPONENT | เส้นปกติ ขั้นบันได สี RGB(153,153,0) Y=20 (0) ถึง Y=30 (100) | ค่าจริง | ค่าจริง |
 | Freezer Fan | `Cabin[1].fan` (0–100) | COMPONENT | เส้นปกติ ขั้นบันได สี RGB(153,76,0) Y=20 (0) ถึง Y=30 (100) | ค่าจริง | ค่าจริง |
 | System state | `Cooler.state` (0–20) | SYSTEM | **เส้นประ** ขั้นบันได Y=−60 (0) ถึง Y=−50 (20) เทียบสัดส่วน | ตัวเลขตามค่าจริง | Min/Max ค่าจริง, Avg "–" |
-| Total door open (At graph) | `Cabin[0].doorSwitch0` + `Cabin[1].doorSwitch0` (ชื่อสำรอง `Cabin[n].components.doorSwitch[0].value`) | SYSTEM | **ไม่มีในกราฟ** (ไม่มี checkbox) | **จำนวนครั้งที่เปิด (1) แล้วปิด (0) รวม 2 ประตู** ในช่วงที่ลากเลือก / ไม่ได้เลือก = ช่วงที่แสดงบนกราฟ (ไม่เปลี่ยนตามเคอร์เซอร์) | บรรทัดล่างแยก Refrigerator door / Freezer door แทน Min/Max/Avg |
+| Door open count (At graph) | สวิตช์ `Cabin[0].doorSwitch0` (R) + `Cabin[1].doorSwitch0` (F) + ตัวจับเวลา `Cabin[1].defrostDelayTimer` | SYSTEM | **ไม่มีในกราฟ** (ไม่มี checkbox) | **จำนวนครั้งที่เปิด รวม 2 ประตู** ในช่วงที่ลากเลือก / ไม่ได้เลือก = ช่วงที่แสดงบนกราฟ (ไม่เปลี่ยนตามเคอร์เซอร์) | บรรทัดล่างแยก Refrigerator door / Freezer door แทน Min/Max/Avg |
+| Door open time (At graph) | `Cabin[1].defrostDelayTimer` (Cabin[1] เป็น 0 ทั้งไฟล์ → `Cabin[0]`) (ชื่อในซอฟต์แวร์ตู้ `Cabin[1].values.defrostDoorOpenedTimer` — ใส่เป็นชื่อสำรอง) | SYSTEM | **ไม่มีในกราฟ** | **เวลาเปิดประตูรวม 2 ประตู** ในช่วงเดียวกับ Door open count — **ตัวเลขไม่เกิน 2 หลัก** (ผู้ใช้กำหนด): 0–99 = วินาที (`75 วินาที`), 100 วินาทีขึ้นไป = นาที (`1.7 นาที`), 100 นาทีขึ้นไป = ชม. (`1.7 ชม.`), 100 ชม. ขึ้นไป = วัน — ทศนิยม 1 ตำแหน่ง | บรรทัดล่าง "รวมทั้ง 2 ประตู" (ไม่แยกประตู) |
 | Damper | `Cabin[0].flap` (0–1850) | COMPONENT | **เส้นประ** สีเดียวกับ Valve ตำแหน่งเดียวกับ Valve: Y=−30 (0) ถึง Y=−25 (1850) | 0 = Close, 1850 = Open, ค่าลดลง = Closing, ค่าเพิ่มขึ้น = Opening | ค่าดิบ |
 | Refrigerator set | `Cabin[0].display` | CONTROL PANEL | **ไม่มีในกราฟ** | ค่าแปลงแล้ว (signed 8-bit) | Min/Max ค่าแปลงแล้ว, Avg "–" |
 | Freezer set | `Cabin[1].display` | CONTROL PANEL | **ไม่มีในกราฟ** | ค่าแปลงแล้ว (signed 8-bit) | Min/Max ค่าแปลงแล้ว, Avg "–" |
 
-- **Door open count / Door close count (`doorsOpenCounter` / `doorsClosedTimer`) เอาออกแล้ว (ผู้ใช้กำหนด 2026-10-19)** — ใช้ Total door open แทน
+- **Door open count / Door close count เดิม (`doorsOpenCounter` / `doorsClosedTimer`) เอาออกแล้ว (ผู้ใช้กำหนด 2026-10-19)**
+  — ชื่อ "Door open count (At graph)" / "Door open time (At graph)" ผู้ใช้กำหนด 2026-10-20 (เดิมชื่อ Total door open)
+- **ตัวจับเวลาเปิดประตู `Cabin[1].defrostDelayTimer`** (ในซอฟต์แวร์ตู้ `values.defrostDoorOpenedTimer` — ผู้ใช้ยืนยัน 2026-10-20) = วินาที นับขึ้นทีละ 1 ขณะประตูเปิด,
+  **reset เป็น 0 หลัง defrost ทุกครั้ง**, **นับรวมทั้ง 2 ประตูที่ Cabin[1] ตัวเดียว** (เปิดซ้ายหรือขวาก็นับที่ตัวนี้)
+  - **ตรวจทั้ง 2 ตัว (ผู้ใช้กำหนด 2026-10-20)** — `pickDoorTimer()` ใน main.js: Cabin[1] มีค่า → ใช้ Cabin[1] (Cabin[0] ไม่สนใจ) ·
+    **Cabin[1] เป็น 0 ทั้งไฟล์แต่ Cabin[0] มีค่า = รุ่นที่มีแค่ประตู R → ใช้ `Cabin[0].defrostDelayTimer` แทน** (เช่นไฟล์ bona_h10) · 0 ทั้งคู่ = เวลา 0
+  - มีในไฟล์ log จริงและ frame ESP32 (`u16le` offset 216) — ไฟล์ไม่มีคอลัมน์นี้ → Door open time แสดง "ไม่มี / N/A"
+- **Door open time** = รวม "ค่าสูงสุดก่อนกลับเป็น 0" ของแต่ละรอบ — คิดเป็นผลรวมของส่วนที่เพิ่มขึ้นในช่วง (`doorOpenSeconds()` ใน main.js):
+  ค่าเพิ่ม = บวกส่วนต่าง, ค่าลดลง (reset) = บวกค่าใหม่ · ช่วงเริ่มกลางรอบ = ไม่นับเวลาที่สะสมก่อนช่วง · ช่วงไม่มีข้อมูลข้าม
+- **Door open count ใช้ 2 ค่าตัดสิน (ผู้ใช้กำหนด 2026-10-20)** — `doorOpenCounts()` ใน main.js:
+  1. หลัก = สวิตช์ประตูแต่ละฝั่ง เปิด (1) แล้วปิด (0) = 1 ครั้ง (นับตอนปิด, เปิดค้างตอนต้นช่วงแล้วปิดในช่วง = นับ)
+  2. เสริม = ตัวจับเวลาเพิ่มขึ้นแต่ไม่มีแถวไหนเห็นสวิตช์เปิด (เปิด-ปิดระหว่างแถว เช่น ESP32 ทุก 10 นาที) = นับเพิ่ม 1 ครั้ง **ใส่ช่อง R** (ตัวจับเวลาไม่บอกฝั่ง — ส่วนใหญ่เปิด R)
+     — แถวที่เพิ่ม/เปิดห่างกันไม่เกิน `OPENING_JOIN_SECONDS` (60) = ครั้งเดียวกัน (log 1 วินาที ไม่นับซ้ำ), ESP32 ห่าง 10 นาที = แต่ละช่วงที่เพิ่มคือ 1 ครั้ง (`hiddenOpenings()`)
+  - ตรวจแล้ว: ไฟล์ Q003 (ESP32 10 นาที, สวิตช์ไม่เคยเห็นเปิด) เดิม 0 ครั้ง → 12 ครั้ง / 3.2 นาที
   - นับตอนปิด: ประตูเปิดค้างอยู่ตอนต้นช่วงแล้วปิดในช่วง = นับ 1 ครั้ง · ช่วงไม่มีข้อมูลข้าม (เทียบกับค่าล่าสุดก่อนหน้า) — `doorOpenCount()` ใน main.js
   - สวิตช์ประตูเป็นรายการ `kind: "hidden"` ใน `STATUS_ITEMS` (อ่านแต่ไม่แสดงเอง), ชื่อคอลัมน์สำรองใส่ `aliases`
 
@@ -405,7 +419,7 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
 
 ### หัวเว็บ / ท้ายเว็บ
 - หัวเว็บ: `AHTH Graph Generator` ต่อท้ายด้วย **`Release version X.Y`** — เลขเวอร์ชันอยู่ที่ `APP_VERSION` ใน `js/site.js` ที่เดียว (ทุกหน้าใช้ร่วมกัน)
-  (ตอนนี้ **2.3**) ต้องเปลี่ยนทุกครั้งที่ release
+  (ตอนนี้ **2.4**) ต้องเปลี่ยนทุกครั้งที่ release
 - มุมขวาบน: ปุ่ม **สลับโหมดสว่าง / มืด** (☀️ / 🌙 แสดงโหมดที่จะสลับไป) อยู่ข้างปุ่ม TH/EN — โค้ดใน `js/theme.js`
   - ครั้งแรกใช้ตามเครื่องผู้ใช้, กดแล้วจำไว้ใน localStorage `theme`, ตั้งค่าตั้งแต่ `<head>` กันหน้าจอกระพริบ
   - สีโหมดมืดอยู่ใต้ `:root[data-theme="dark"]` ใน style.css; สลับโหมดแล้วสร้างกราฟใหม่ (คงช่วง zoom)

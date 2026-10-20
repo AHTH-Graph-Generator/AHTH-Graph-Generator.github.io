@@ -36,6 +36,7 @@ NAMED_COLUMNS = [
     "Cooler.condenserFan", "Cooler.SV.positionIndex",
     "Cooler.state", "doorsOpenCounter", "doorsClosedTimer", "WorkMode",
     "Cabin[0].doorSwitch0", "Cabin[1].doorSwitch0",
+    "Cabin[0].defrostDelayTimer", "Cabin[1].defrostDelayTimer",  # Cabin[0] = 0 ทั้งไฟล์ (รุ่นที่นับที่ Cabin[1])
     "Cabin[0].flap", "Cabin[0].display", "Cabin[1].display", "work.Sabbath", "work.EcoExtra",
     "errHighTemp",
     "Cabin[0].fanCutInTemp", "Cabin[0].fanCutOutTemp", "Cabin[1].fanCutInTemp", "Cabin[1].fanCutOutTemp",
@@ -221,7 +222,9 @@ def make_row(header, t, s, door_open, fz_err, sec):
     values["doorsClosedTimer"] = str(65535 if door_open else max(0, 65535 - closed_for))
     # สวิตช์ประตู (1 = เปิด): ตู้เย็นตาม door_open (ทุก 90 นาที), ช่องแช่แข็งเปิด 20 วินาทีทุก 2 ชม. — นับ Total door open
     values["Cabin[0].doorSwitch0"] = "1" if door_open else "0"
-    values["Cabin[1].doorSwitch0"] = "1" if 3000 <= sec % 7200 < 3020 else "0"
+    values["Cabin[1].doorSwitch0"] = "1" if fz_door_open(sec) else "0"
+    # ตัวจับเวลาเปิดประตู (วินาที) ตัวเดียวที่ Cabin[1] นับทั้ง 2 ประตู — นับใน generate_rows, reset เป็น 0 ตอน defrost (Door open time)
+    values["Cabin[1].defrostDelayTimer"] = str(s["door_timer"])
     values["IceMachine.firstIce"] = "1" if sec < 600 else "0"            # First ice 10 นาทีแรก
     values["IceMachine.iceOFF"] = "1" if 3600 <= sec % 10800 < 5400 else "0"  # ปิด dial ชั่วคราว
     values["IceMachine.temp.Err"] = "1" if 5000 <= sec % 10800 < 5030 else "0"  # sensor error สั้นๆ
@@ -238,14 +241,26 @@ def make_row(header, t, s, door_open, fz_err, sec):
     return "\t".join(values[name] for name in header)
 
 
+def fz_door_open(sec):
+    """ประตูช่องแช่แข็งเปิด 20 วินาทีทุก 2 ชม."""
+    return 3000 <= sec % 7200 < 3020
+
+
 def generate_rows(header, start, seconds, seed=1):
     rng = random.Random(seed)
     fridge = Fridge(rng)
     rows = []
+    door_timer = 0
     for sec in range(int(seconds)):
         t = start + timedelta(seconds=sec)
         door_open = 600 <= sec % 5400 < 640
-        s = fridge.step(sec, door_open, defrost_start=(sec % 10800 == 7200))
+        defrost_start = sec % 10800 == 7200
+        if defrost_start:  # ตัวจับเวลาเปิดประตู reset หลัง defrost
+            door_timer = 0
+        # ตัวจับเวลานับทั้ง 2 ประตู + เปิด 15 วินาทีที่สวิตช์ไม่เห็น (sec 9000) — ทดสอบการนับครั้งที่สวิตช์พลาด
+        door_timer += 1 if door_open or fz_door_open(sec) or 9000 <= sec < 9015 else 0
+        s = fridge.step(sec, door_open, defrost_start=defrost_start)
+        s = {**s, "door_timer": door_timer}
         is_midnight = t.hour == 0 and t.minute == 0 and t.second == 0
         # จังหวะเวลาแบบของจริง: ช่วงขาดหาย 45 วินาทีทุก 2 ชม., บางวินาทีหายไป (ห่าง 2–3 วินาที),
         # ~8% ของแถวมีเวลาซ้ำกับแถวก่อน, แถวเที่ยงคืนพอดีมีเสมอ (มีแค่วันที่)

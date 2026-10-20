@@ -46,7 +46,14 @@ const MSG = {
   saveFailed:     { th: "บันทึกรูปไม่สำเร็จ", en: "Could not save the image." },
   notPresent:     { th: "ไม่มี", en: "N/A" },
   gapNoData:      { th: "ไม่มีข้อมูล", en: "no data" },
-  doorCountTitle: { th: "จำนวนครั้งที่เปิด-ปิดประตู ในช่วงที่เลือก (ไม่ได้เลือก = ช่วงที่แสดงบนกราฟ)", en: "Door open-close count in the selected range (or the visible range if nothing is selected)" },
+  doorCountTitle: { th: "จำนวนครั้งที่เปิด-ปิดประตู ในช่วงที่เลือก (ไม่ได้เลือก = ช่วงที่แสดงบนกราฟ) — จากสวิตช์ประตู + ตัวจับเวลาเพิ่มขึ้นโดยสวิตช์ไม่เห็น (นับที่ประตู R)", en: "Door open-close count in the selected range (or the visible range if nothing is selected), from door switches plus timer increases the switches missed (counted on door R)" },
+  doorTimeTitle:  { th: "เวลาเปิดประตูรวมทั้ง 2 ประตู ในช่วงที่เลือก (ไม่ได้เลือก = ช่วงที่แสดงบนกราฟ) — จาก Cabin[1].defrostDelayTimer", en: "Total open time of both doors in the selected range (or the visible range if nothing is selected), from Cabin[1].defrostDelayTimer" },
+  doorBoth:       { th: "รวมทั้ง 2 ประตู", en: "Both doors" },
+  doorTimeMissing:{ th: "ไฟล์นี้ไม่มีคอลัมน์ Cabin[1].defrostDelayTimer", en: "This file has no Cabin[1].defrostDelayTimer column" },
+  openSeconds:    { th: "{n} วินาที", en: "{n} s" },
+  openMinutes:    { th: "{n} นาที", en: "{n} min" },
+  openHours:      { th: "{n} ชม.", en: "{n} h" },
+  openDays:       { th: "{n} วัน", en: "{n} d" },
   pickColor:      { th: "เปลี่ยนสีบนกราฟ", en: "Change graph color" },
   resetColor:     { th: "กลับเป็นสีเริ่มต้น", en: "Reset to default color" },
   colorHint:      { th: "คลิก / ลาก = ลองสี · ดับเบิลคลิก = เลือกแล้วปิด · Esc / คลิกนอกกล่อง = ปิด", en: "Click / drag = try · Double-click = choose and close · Esc / click outside = close" },
@@ -303,11 +310,15 @@ function buildItems(result) {
       return result[meta.changes].length ? [{ meta, kind: "marker", raw: null, show: true }] : [];
     }
     if (meta.kind === "hidden") return []; // ใช้คำนวณรายการอื่น ไม่แสดงเอง
-    // Total door open: นับจากสวิตช์ประตูที่มีในไฟล์
-    if (meta.doorCount) {
-      const doors = meta.doorCount.map((key) => ({ meta: STATUS_ITEMS.find((s) => s.key === key), raw: result.status[key] }))
-        .filter((d) => d.raw);
-      return doors.length ? [{ meta, kind: "value", raw: null, doors, show: true }] : [];
+    // Door open count / time: คำนวณจากคอลัมน์ของแต่ละประตูที่มีในไฟล์
+    //   count ไม่มีสวิตช์ประตูเลย = ไม่แสดง · time ไม่มีตัวจับเวลา = แสดง N/A (ให้รู้ว่ามีรายการนี้ แต่ไฟล์นี้ไม่มีข้อมูล)
+    if (meta.doorMode) {
+      // doors = ช่องแยกแต่ละประตูในบรรทัดล่าง (เฉพาะ count) — แสดงทั้ง 2 ประตูเสมอ คอลัมน์ไม่มี = นับ 0
+      const doors = (meta.doors || []).map((key) => ({ meta: STATUS_ITEMS.find((s) => s.key === key), raw: result.status[key] || null }));
+      const timer = pickDoorTimer(meta.timer.map((key) => result.status[key]));
+      const absent = meta.doorMode === "time" ? !timer : !timer && !doors.some((d) => d.raw);
+      if (absent && meta.doorMode === "count") return [];
+      return [{ meta, kind: "value", raw: null, doors, timer, times: result.times, absent, show: true }];
     }
     const raw = result.status[meta.key];
     if (!raw) return [];
@@ -391,6 +402,85 @@ function doorOpenCount(raw, start, end) {
     prev = v;
   }
   return count;
+}
+
+// จำนวนครั้งที่เปิดประตูซึ่งสวิตช์ไม่เห็น: ตัวจับเวลา (Cabin[1].defrostDelayTimer) เพิ่มขึ้น แต่ไม่มีแถวไหนเห็นสวิตช์ประตูเปิดเลย
+//   = เปิด-ปิดระหว่าง 2 แถว (ESP32 บันทึกทุก 10 นาที) → นับ 1 ครั้งต่อช่วงที่ตัวจับเวลาเพิ่มต่อเนื่อง
+//   ช่วงต่อเนื่อง = แถวที่ตัวจับเวลาเพิ่ม / สวิตช์เปิด ห่างกันไม่เกิน OPENING_JOIN_SECONDS
+//   (log 1 วินาที: ตัวจับเวลาบวกช้ากว่าสวิตช์ 1–2 แถว / แถวเวลาซ้ำ ไม่ถูกนับซ้ำ)
+//   ESP32 (ห่าง 10 นาที) → แต่ละช่วงที่เพิ่ม = 1 ครั้ง
+const OPENING_JOIN_SECONDS = 60;
+function hiddenOpenings(item, start, end) {
+  const { timer, times } = item;
+  const switches = item.doors.map((d) => d.raw).filter(Boolean);
+  const isOpen = (i) => switches.some((raw) => raw[i] > 0);
+  let hidden = 0, prev = -1, inEpisode = false, seen = false, lastT = NaN;
+  const closeEpisode = () => { if (inEpisode && !seen) hidden++; inEpisode = false; };
+  for (let i = start; i < end; i++) {
+    const v = timer[i];
+    if (Number.isNaN(v)) continue;
+    if (prev >= 0) {
+      const p = timer[prev];
+      const increased = (v >= p ? v - p : v) > 0;
+      const open = isOpen(i) || isOpen(prev);
+      // แถวที่ไม่เปลี่ยน (รวมแถวเวลาซ้ำ) ไม่ตัดช่วง — ตัดเมื่อแถวที่เปลี่ยนห่างจากครั้งก่อนเกิน OPENING_JOIN_SECONDS
+      if (increased || open) {
+        if (inEpisode && times[i] - lastT > OPENING_JOIN_SECONDS) closeEpisode();
+        if (!inEpisode) { inEpisode = true; seen = false; }
+        if (open) seen = true;
+        lastT = times[i];
+      }
+    }
+    prev = i;
+  }
+  closeEpisode();
+  return hidden;
+}
+
+// ตัวจับเวลาที่ใช้: ตัวแรก (Cabin[1]) ถ้ามีค่า ≠ 0 · Cabin[1] เป็น 0 ทั้งไฟล์แต่ Cabin[0] มีค่า (รุ่นมีแค่ประตู R) → Cabin[0]
+// ทั้งคู่เป็น 0 → ตัวแรกที่มีคอลัมน์ (เวลาเปิด = 0) · ไม่มีคอลัมน์เลย → null
+function pickDoorTimer(raws) {
+  const present = raws.filter(Boolean);
+  return present.find((raw) => !isAllZero(raw)) || present[0] || null;
+}
+
+// จำนวนครั้งแยกแต่ละประตู [R, F] = จากสวิตช์ + ครั้งที่สวิตช์ไม่เห็นใส่ช่อง R (ตัวจับเวลาไม่แยกประตู — ส่วนใหญ่เปิด R, ผู้ใช้กำหนด)
+function doorOpenCounts(item, start, end) {
+  const counts = item.doors.map((d) => (d.raw ? doorOpenCount(d.raw, start, end) : 0));
+  if (item.timer && counts.length) counts[0] += hiddenOpenings(item, start, end);
+  return counts;
+}
+
+// Door open time: เวลาเปิดประตู (วินาที) ในช่วง index [start, end) จากตัวจับเวลาที่ reset หลัง defrost
+// = รวม "ค่าสูงสุดก่อนกลับเป็น 0" ของแต่ละรอบ — คิดเป็นผลรวมของส่วนที่เพิ่มขึ้นในช่วง
+//   ค่าเพิ่ม = บวกส่วนต่าง, ค่าลดลง (reset) = รอบใหม่เริ่มจาก 0 → บวกค่าใหม่
+//   ช่วงเริ่มกลางรอบ → ไม่นับเวลาที่สะสมไว้ก่อนช่วง · ช่วงไม่มีข้อมูล (NaN) ข้าม
+function doorOpenSeconds(raw, start, end) {
+  let total = 0, prev = NaN;
+  for (let i = start; i < end; i++) {
+    const v = raw[i];
+    if (Number.isNaN(v)) continue;
+    if (!Number.isNaN(prev)) total += v >= prev ? v - prev : v;
+    prev = v;
+  }
+  return total;
+}
+
+// เวลาเปิดประตู: ตัวเลขไม่เกิน 2 หลัก — เกิน 99 แล้วขึ้นหน่วยถัดไป (ผู้ใช้กำหนด)
+//   0–99 วินาที → วินาที (จำนวนเต็ม) · 100 วินาทีขึ้นไป → นาที · 100 นาทีขึ้นไป → ชั่วโมง · 100 ชั่วโมงขึ้นไป → วัน (ทศนิยม 1 ตำแหน่ง)
+const OPEN_TIME_UNITS = [
+  { seconds: 86400, msg: "openDays" }, { seconds: 3600, msg: "openHours" }, { seconds: 60, msg: "openMinutes" },
+];
+function fmtOpenTime(seconds) {
+  const locale = getLang() === "th" ? "th-TH" : "en-US";
+  let unit = null;
+  if (Math.round(seconds) >= 100) {
+    unit = OPEN_TIME_UNITS[OPEN_TIME_UNITS.length - 1];
+    for (let i = OPEN_TIME_UNITS.length - 1; i > 0 && seconds / unit.seconds >= 99.95; i--) unit = OPEN_TIME_UNITS[i - 1];
+  }
+  if (!unit) return t(MSG.openSeconds, { n: fmtInt(Math.round(seconds)) });
+  const n = (seconds / unit.seconds).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  return t(MSG[unit.msg], { n });
 }
 
 // ---------- Power: หาแถวที่ตัวนับ reset ----------
@@ -1052,8 +1142,9 @@ function createStatRow(item) {
   const sub = document.createElement("div");
   sub.className = "stat-sub";
   if (item.doors) {
-    // Total door open: แยกจำนวนครั้งของแต่ละประตูแทน Min / Max / เฉลี่ย
-    cursor.title = t(MSG.doorCountTitle);
+    // Door open count: บรรทัดล่างแยกแต่ละประตูแทน Min / Max / เฉลี่ย · Door open time: ไม่แยกประตู (ตัวจับเวลามีตัวเดียว)
+    cursor.title = t(item.absent ? MSG.doorTimeMissing : item.meta.doorMode === "time" ? MSG.doorTimeTitle : MSG.doorCountTitle);
+    if (!item.doors.length) sub.append(t(MSG.doorBoth));
     item.doors.forEach((d) => {
       const part = document.createElement("span");
       const value = document.createElement("b");
@@ -1121,8 +1212,13 @@ function updateStats() {
   document.getElementById("info-workmode").textContent = workModeBefore(end) ?? "–";
   loaded.items.forEach((item, i) => {
     const tr = statRows[i];
-    if (item.doors) { // Total door open: ตัวเลขใหญ่ = รวม, บรรทัดล่าง = แยกแต่ละประตู
-      const counts = item.doors.map((d) => doorOpenCount(d.raw, start, end));
+    if (item.doors) { // Door open count / time: ตัวเลขใหญ่ = รวม, บรรทัดล่าง = แยกแต่ละประตู
+      if (item.absent) { tr.querySelector(".cursor").textContent = t(MSG.notPresent); return; }
+      if (item.meta.doorMode === "time") {
+        tr.querySelector(".cursor").textContent = fmtOpenTime(doorOpenSeconds(item.timer, start, end));
+        return;
+      }
+      const counts = doorOpenCounts(item, start, end);
       tr.querySelector(".cursor").textContent = fmtInt(counts.reduce((a, b) => a + b, 0));
       tr.querySelectorAll(".door").forEach((b, k) => { b.textContent = fmtInt(counts[k]); });
       return;
@@ -1195,7 +1291,7 @@ function updateCursor(idx) {
   el.cursorSoftware.textContent = valid ? (softwareBefore(idx + 1) ?? "–") : "–";
   el.cursorWorkMode.textContent = valid ? (workModeBefore(idx + 1) ?? "–") : "–";
   loaded.items.forEach((item, i) => {
-    if (item.doors) return; // Total door open = ค่าของช่วง ไม่ใช่ ณ เคอร์เซอร์
+    if (item.doors) return; // Door open count / time = ค่าของช่วง ไม่ใช่ ณ เคอร์เซอร์
     statRows[i].querySelector(".cursor").textContent = valid ? cursorText(item, idx) : "–";
   });
 }

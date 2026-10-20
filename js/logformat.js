@@ -136,10 +136,24 @@ export const STATUS_ITEMS = [
     th: "Refrigerator door", en: "Refrigerator door" },
   { key: "doorFz", column: "Cabin[1].doorSwitch0", aliases: ["Cabin[1].components.doorSwitch[0].value"], kind: "hidden",
     th: "Freezer door", en: "Freezer door" },
-  // Total door open (At graph): นับจำนวนครั้งที่ประตูเปิด (1) แล้วปิด (0) = 1 ครั้ง รวมทั้ง 2 ประตู
-  //   ช่วงที่นับ = ช่วงที่ลากเลือก ถ้าไม่ได้เลือก = ช่วงที่แสดงบนกราฟ — ไม่มีในกราฟ (doorCountsIn() ใน main.js)
-  { key: "doorOpenTotal", doorCount: ["doorFc", "doorFz"], group: "system", kind: "value",
-    th: "Total door open (At graph)", en: "Total door open (At graph)" },
+  // ตัวจับเวลาเปิดประตู (วินาที นับขึ้นทีละ 1 ขณะประตูเปิด, reset เป็น 0 หลัง defrost ทุกครั้ง)
+  //   ชื่อใน log = Cabin[1].defrostDelayTimer (ในซอฟต์แวร์ตู้ชื่อ Cabin[1].values.defrostDoorOpenedTimer)
+  //   **นับรวมทั้ง 2 ประตูที่ Cabin[1] ตัวเดียว** (ผู้ใช้ยืนยัน)
+  //   ยกเว้น Cabin[1] เป็น 0 ทั้งไฟล์แต่ Cabin[0] มีค่า (รุ่นที่มีแค่ประตู R) → ใช้ Cabin[0] แทน (pickDoorTimer ใน main.js)
+  { key: "doorTimer", column: "Cabin[1].defrostDelayTimer",
+    aliases: ["Cabin[1].values.defrostDoorOpenedTimer", "Cabin[1].defrostDoorOpenedTimer"],
+    kind: "hidden", th: "Door open timer", en: "Door open timer" },
+  { key: "doorTimerR", column: "Cabin[0].defrostDelayTimer",
+    aliases: ["Cabin[0].values.defrostDoorOpenedTimer", "Cabin[0].defrostDoorOpenedTimer"],
+    kind: "hidden", th: "Door open timer (R)", en: "Door open timer (R)" },
+  // Door open count / time (At graph) — ช่วงที่นับ = ช่วงที่ลากเลือก ถ้าไม่ได้เลือก = ช่วงที่แสดงบนกราฟ · ไม่มีในกราฟ
+  //   count: สวิตช์ประตูเปิด (1) แล้วปิด (0) = 1 ครั้ง ต่อประตู (doorOpenCount)
+  //          + ตัวจับเวลาเพิ่มขึ้นโดยไม่เห็นสวิตช์เปิดเลย (เปิด-ปิดระหว่างแถว เช่น ESP32 ทุก 10 นาที) = นับเพิ่ม 1 ครั้งที่ประตู R (hiddenOpenings)
+  //   time:  รวมเวลาเปิดจากตัวจับเวลา — ค่าสูงสุดก่อน reset ของแต่ละรอบรวมกัน (doorOpenSeconds) · ไม่แยกประตู
+  { key: "doorOpenTotal", doors: ["doorFc", "doorFz"], timer: ["doorTimer", "doorTimerR"], doorMode: "count", group: "system", kind: "value",
+    th: "Door open count (At graph)", en: "Door open count (At graph)" },
+  { key: "doorOpenTime", timer: ["doorTimer", "doorTimerR"], doorMode: "time", group: "system", kind: "value",
+    th: "Door open time (At graph)", en: "Door open time (At graph)" },
   // Power: ProTestTimer เป็นตัวนับ — แถวที่ reset (ไฟดับแล้วเปิดใหม่) → Y = 55, นอกนั้น → Y = 57
   // (หาจุด reset ด้วย counterResets() ใน main.js — ดู POWER_COUNTER)
   { key: "power", column: "ProTestTimer", group: "other", kind: "line", color: "axis",
