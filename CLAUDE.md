@@ -156,6 +156,9 @@ URL: https://ahth-graph-generator.github.io
 
 ### รายการสถานะ (marker) — กำหนดใน `STATUS_ITEMS` ใน `js/logformat.js`
 marker = สัญลักษณ์เล็กๆ (ให้รู้ว่ามี ไม่ต้องใหญ่) ช่วงที่ค่าค้างนานจะเป็นแถวสัญลักษณ์เว้นระยะกัน
+- **สถานะของ marker ถือค่าไว้จนถึงแถวถัดไป (เหมือนเส้นขั้นบันได — ผู้ใช้กำหนด 2026-10-27)** → วาดสัญลักษณ์**แบบเดิม** เว้นระยะ `MARKER_GAP` ตลอดช่วงนั้น
+  (ESP32 ทุก 10 นาที ซูมเข้าแล้วไม่เป็นจุดๆ เหมือนโหมดเปิด-ปิดสลับ) · ไม่ลากข้ามช่วงข้อมูลขาด (แถว NaN ที่ worker แทรกปิดช่วงเอง)
+  · Software / Work mode change = เหตุการณ์ วาดจุดเดียวเหมือนเดิม — `drawMarkerLayer()` ใน chart.js
 สีที่ผู้ใช้กำหนด: Power = **สีเดียวกับตัวเลขแกนกราฟ** (`--muted` เปลี่ยนตามโหมดสว่าง/มืดเอง, ใส่ `color: "axis"`),
 Compressor = RGB(255,0,127), Condenser Fan = RGB(190,0,225), Valve = RGB(137,137,255), System state = RGB(102,102,0),
 Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
@@ -317,8 +320,10 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
     - ไฟล์ที่มี `?v=<modified>` จำถาวร (หน่วยความจำ Worker + Cache API + browser `private, immutable`) · `/index` จำ 60 วินาที
     - **คำขอพร้อมกันเรียก Apps Script ครั้งเดียว** (`once()`), Apps Script เกิน 25 วินาที = ล้มเหลว,
       **Apps Script ล้มเหลว → ตอบรายการเครื่องล่าสุดที่เคยได้ + header `X-Index-Stale` (วินาที)** แทน error
-    - **stale-while-revalidate**: รายการเก่ากว่า 60 วินาทีแต่ไม่เกิน 15 นาที → ตอบรายการเดิมทันที แล้วขอใหม่เบื้องหลัง (`ctx.waitUntil`)
-      ผู้ใช้ไม่ต้องรอ Google เปิดสคริปต์ (~4 วินาที — วัดแล้ว Drive API ค้นไฟล์เองแค่ ~0.6 วินาที) · เกิน 15 นาที (ไม่มีใครเปิด) = รอ 1 ครั้ง
+    - **stale-while-revalidate**: รายการเก่ากว่า 60 วินาที (**เก่าแค่ไหนก็ได้** — เดิมจำกัด 15 นาที) → ตอบรายการเดิมทันที แล้วขอใหม่เบื้องหลัง (`ctx.waitUntil`)
+      ผู้ใช้ไม่ต้องรอ Google เปิดสคริปต์ · รอ Apps Script เฉพาะตอนไม่มีรายการเลย (ทั้งหน่วยความจำและ KV)
+    - **`once()` ต้องมีเวลาหมดเสมอ (2026-10-21 แก้ /index ค้างจนหน้า Monitoring โหลดไม่เสร็จ)**: งานร่วมที่เริ่มในคำขออื่นอาจไม่มีวันเสร็จ
+      (Cloudflare ปิดคำขอนั้นไปก่อน) → ผู้รอได้ 504 หลัง `SHARED_WAIT_MS` (28 วินาที) และงานที่ค้างเกินนั้นเริ่มใหม่ได้ · ห้ามรอ promise ร่วมโดยไม่มี `withTimeout()`
     - **รายการเครื่องล่าสุดเก็บใน KV ด้วย** (`cache:index`, เขียนไม่เกินทุก 10 นาที) — Worker เริ่ม instance ใหม่ตอน Apps Script ล้มเหลวก็ยังตอบรายการเดิม (+ `X-Index-Stale`, `X-Index-Error`)
     - Apps Script ล้มเหลว → ข้อความ error บอกสาเหตุ (`apps script error: <ข้อความจาก Apps Script / HTTP 429 …>`) ตัดข้อความที่ดูเหมือน ID ยาวออก (กัน ID โฟลเดอร์หลุด) + `console.log` ดูได้ใน Cloudflare Logs
     - `ALLOWED_ORIGINS`: GitHub Pages + `http://localhost:8000`
@@ -419,7 +424,7 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
 
 ### หัวเว็บ / ท้ายเว็บ
 - หัวเว็บ: `AHTH Graph Generator` ต่อท้ายด้วย **`Release version X.Y`** — เลขเวอร์ชันอยู่ที่ `APP_VERSION` ใน `js/site.js` ที่เดียว (ทุกหน้าใช้ร่วมกัน)
-  (ตอนนี้ **2.4**) ต้องเปลี่ยนทุกครั้งที่ release
+  (ตอนนี้ **2.5**) ต้องเปลี่ยนทุกครั้งที่ release
 - มุมขวาบน: ปุ่ม **สลับโหมดสว่าง / มืด** (☀️ / 🌙 แสดงโหมดที่จะสลับไป) อยู่ข้างปุ่ม TH/EN — โค้ดใน `js/theme.js`
   - ครั้งแรกใช้ตามเครื่องผู้ใช้, กดแล้วจำไว้ใน localStorage `theme`, ตั้งค่าตั้งแต่ `<head>` กันหน้าจอกระพริบ
   - สีโหมดมืดอยู่ใต้ `:root[data-theme="dark"]` ใน style.css; สลับโหมดแล้วสร้างกราฟใหม่ (คงช่วง zoom)

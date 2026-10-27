@@ -332,34 +332,46 @@ function drawShape(ctx, shape, x, y, ratio) {
 }
 
 // วาด marker 1 ชั้น เฉพาะช่วงที่มองเห็น และเว้นระยะอย่างน้อย MARKER_GAP (ข้อมูลหลายแสนจุด)
+// สถานะ (raw) ถือค่าไว้จนถึงแถวถัดไปเหมือนเส้นขั้นบันได → วาดสัญลักษณ์เว้นระยะ MARKER_GAP ตลอดช่วงนั้น (ผู้ใช้กำหนด)
+//   ไม่งั้น sampling ห่าง (ESP32 ทุก 10 นาที) ซูมเข้าแล้วเห็นสัญลักษณ์เป็นจุดๆ เหมือนโหมดเปิด-ปิดสลับไปมา
+//   ช่วงข้อมูลขาด: worker แทรกแถว NaN ไว้ติดกับแถวสุดท้าย → ช่วงที่ถือค่าจบตรงนั้นเอง ไม่ลากข้ามช่วงขาด
+//   จุดเปลี่ยน (layer.times: Software / Work mode change) = เหตุการณ์ วาดจุดเดียวเหมือนเดิม
 function drawMarkerLayer(u, times, layer) {
   const { ctx, bbox } = u;
   const ratio = window.devicePixelRatio || 1;
   const y = u.valToPos(layer.y, "y", true);
+  const left = bbox.left, right = bbox.left + bbox.width;
   ctx.save();
   ctx.strokeStyle = ctx.fillStyle = layer.color;
   ctx.lineWidth = 1.5 * ratio;
 
   const gap = MARKER_GAP * ratio;
-  const drawAt = (t, lastX) => {
-    const x = u.valToPos(t, "x", true);
-    if (x < bbox.left || x > bbox.left + bbox.width) return lastX;
-    if (lastX !== null && x - lastX < gap) return lastX;
+  let lastX = null;
+  const drawX = (x) => {
+    if (x < left || x > right) return;
+    if (lastX !== null && x - lastX < gap) return;
     drawShape(ctx, layer.shape, x, y, ratio);
-    return x;
+    lastX = x;
   };
 
-  let lastX = null;
   if (layer.times) {
-    for (const t of layer.times) lastX = drawAt(t, lastX);
+    for (const t of layer.times) drawX(u.valToPos(t, "x", true));
   } else {
     const { min, max } = u.scales.x;
-    const start = lowerBound(times, min);
+    const n = times.length;
+    // เริ่มจากแถวก่อนขอบซ้าย — ช่วงที่ถือค่าของแถวนั้นอาจยาวเข้ามาในจอ
+    const start = Math.max(0, lowerBound(times, min) - 1);
     const onZero = layer.drawWhen === "zero";
-    for (let i = start; i < times.length && times[i] <= max; i++) {
+    for (let i = start; i < n && times[i] <= max; i++) {
       const v = layer.raw[i];
-      if (Number.isNaN(v)) continue;
-      if (onZero ? v === 0 : v !== 0) lastX = drawAt(times[i], lastX);
+      if (Number.isNaN(v) || !(onZero ? v === 0 : v !== 0)) continue;
+      const x0 = u.valToPos(times[i], "x", true);
+      const x1 = i + 1 < n ? Math.min(u.valToPos(times[i + 1], "x", true), right) : x0;
+      // เว้นระยะต่อเนื่องจากตัวก่อนหน้า (ช่วงที่ติดกันได้ระยะห่างเท่ากันทั้งแถว)
+      let x = lastX !== null && lastX + gap > x0 ? lastX + gap : x0;
+      if (x < left) x += Math.ceil((left - x) / gap) * gap; // ข้ามส่วนที่อยู่นอกจอซ้าย
+      if (x1 <= x0) { drawX(x0); continue; }
+      for (; x < x1; x += gap) drawX(x);
     }
   }
   ctx.restore();

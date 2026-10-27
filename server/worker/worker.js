@@ -31,9 +31,6 @@ const ALLOWED_ORIGINS = [
 ];
 const INDEX_CACHE_SECONDS = 60;     // จำรายการเครื่อง 1 นาที (เว็บถามทุก 1 นาที, ESP32 เขียนทุก 10 นาที)
 const APPS_SCRIPT_TIMEOUT_MS = 25000; // Apps Script ตอบช้าเกินนี้ = ล้มเหลว (ใช้รายการล่าสุดที่เคยได้แทน)
-// รายการเก่ากว่า INDEX_CACHE_SECONDS แต่ไม่เกินนี้ → ตอบรายการเดิมทันที แล้วขอรายการใหม่เบื้องหลัง (ผู้ใช้ไม่ต้องรอ Google ~5 วินาที)
-// เก่ากว่านี้ (เช่นไม่มีใครเปิดนาน) → รอ Apps Script ก่อนตอบ
-const INDEX_STALE_MAX_SECONDS = 15 * 60;
 const INDEX_KV_KEY = "cache:index";    // รายการเครื่องล่าสุดใน KV (ไม่ใช่ข้อมูล log — มีแค่ชื่อ device / ชื่อไฟล์ / เวลา)
 const INDEX_KV_SECONDS = 10 * 60;      // เขียน KV ไม่เกินทุก 10 นาทีต่อ instance (KV ฟรีเขียนได้ 1,000 ครั้ง/วัน)
 const FILES_MAX = 40;                  // /files ขอได้ไม่เกินกี่ไฟล์ต่อครั้ง (เท่ากับ FILES_MAX ใน Code.gs)
@@ -51,10 +48,32 @@ const memCache = new Map(); // key → { time, value }
 const FILE_MEM_MAX = 150;
 const fileMem = new Map();
 // คำขอที่กำลังรอ Apps Script อยู่ — ผู้ใช้หลายคนขอของเดียวกันพร้อมกัน = เรียก Apps Script ครั้งเดียว ใช้ผลร่วมกัน
+//   key → { promise, started }
+//   ⚠️ งานที่เริ่มในคำขออื่นอาจไม่มีวันเสร็จ (Cloudflare ปิดคำขอนั้นไปก่อน) → ถ้ารอเกิน SHARED_WAIT_MS:
+//   งานนั้นถือว่าค้าง เริ่มใหม่ได้ และผู้ที่รออยู่ได้ error 504 แทนการรอตลอดไป (เคยทำให้ /index ค้างจนหน้าเว็บโหลดไม่เสร็จ)
+const SHARED_WAIT_MS = APPS_SCRIPT_TIMEOUT_MS + 3000;
 const inflight = new Map();
 function once(key, fn) {
-  if (!inflight.has(key)) inflight.set(key, fn().finally(() => inflight.delete(key)));
-  return inflight.get(key);
+  return withTimeout(shared(key, fn), SHARED_WAIT_MS);
+}
+function shared(key, fn) {
+  const current = inflight.get(key);
+  if (current && Date.now() - current.started < SHARED_WAIT_MS) return current.promise;
+  const entry = { started: Date.now() };
+  entry.promise = fn().finally(() => { if (inflight.get(key) === entry) inflight.delete(key); });
+  inflight.set(key, entry);
+  return entry.promise;
+}
+// งานร่วมที่ยังไม่ค้าง (เริ่มไม่เกิน SHARED_WAIT_MS) หรือ null
+function pendingShared(key) {
+  const current = inflight.get(key);
+  return current && Date.now() - current.started < SHARED_WAIT_MS ? current.promise : null;
+}
+// รอไม่เกิน ms — ตัวจับเวลาสร้างในคำขอที่กำลังรอ จึงทำงานแน่นอน
+function withTimeout(promise, ms) {
+  let id;
+  const timeout = new Promise((_, reject) => { id = setTimeout(() => reject(new HttpError(504, "apps script timeout")), ms); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(id));
 }
 // เวลาที่ใช้แต่ละขั้น → header Server-Timing (เช่น auth;dur=3, as;dur=3900;desc="files 6")
 function timer() {
@@ -322,7 +341,7 @@ function appsScriptErrorDetail(status, body) {
 }
 
 // รายการเครื่อง: จำ INDEX_CACHE_SECONDS วินาที, คำขอพร้อมกันเรียก Apps Script ครั้งเดียว
-//   เก่ากว่านั้นแต่ไม่เกิน INDEX_STALE_MAX_SECONDS → ตอบรายการเดิมทันที + ขอรายการใหม่เบื้องหลัง (stale-while-revalidate)
+//   เก่ากว่านั้น (เก่าแค่ไหนก็ได้) → ตอบรายการเดิมทันที + ขอรายการใหม่เบื้องหลัง (stale-while-revalidate) — รอ Apps Script เฉพาะตอนไม่มีรายการเลย
 //   Apps Script ล้มเหลว → ตอบรายการล่าสุดที่เคยได้ แทน error
 //   ตอบรายการเก่ากว่ารอบจำ → header X-Index-Stale = อายุ (วินาที) — เว็บแจ้ง "ระบบตอบช้า" เมื่อเกิน 2 นาที
 //   รายการล่าสุดเก็บใน KV ด้วย (เขียนไม่เกินทุก INDEX_KV_SECONDS) — Worker เริ่ม instance ใหม่ตอน Apps Script ล้มเหลวก็ยังตอบได้
@@ -356,7 +375,9 @@ async function index(request, env, ctx, cors) {
   };
   const age = lastGoodIndex ? (Date.now() - lastGoodIndex.time) / 1000 : Infinity;
   if (age < INDEX_CACHE_SECONDS) return reply(lastGoodIndex.body, "cached");
-  if (age < INDEX_STALE_MAX_SECONDS) {
+  // มีรายการเดิม (หน่วยความจำ / KV) ไม่ว่าเก่าแค่ไหน → ตอบทันที + ขอใหม่เบื้องหลัง ผู้ใช้ไม่ต้องรอ Google
+  // (เว็บแจ้ง "ระบบตอบช้า — แสดงรายการเครื่องเมื่อ … นาทีที่แล้ว" และได้รายการใหม่ในรอบถัดไป ~1 นาที)
+  if (lastGoodIndex) {
     ctx.waitUntil(fetchIndex(env).catch(() => { /* ล้มเหลวก็ใช้รายการเดิมต่อ ครั้งหน้าลองใหม่ */ }));
     return reply(lastGoodIndex.body, `stale ${Math.round(age)}s`, { "X-Index-Stale": String(Math.round(age)) });
   }
@@ -417,8 +438,9 @@ async function files(request, env, cors, url) {
     const key = `file:${w.id}@${w.v}`;
     const text = fileMem.get(key);
     if (text !== undefined) out[w.id] = text;
-    else if (inflight.has(key)) {
-      waits.push(inflight.get(key).then((t) => { out[w.id] = t; }, (e) => { errors[w.id] = e.code || "error"; }));
+    else if (pendingShared(key)) {
+      waits.push(withTimeout(pendingShared(key), SHARED_WAIT_MS)
+        .then((t) => { out[w.id] = t; }, (e) => { errors[w.id] = e.code || "error"; }));
     } else missing.push(w);
   }
   tm.add("cache", 0, `hit ${Object.keys(out).length}/${wanted.length}`);
