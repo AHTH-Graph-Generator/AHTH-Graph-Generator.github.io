@@ -608,6 +608,8 @@ body.modal-open { overflow: hidden; }
 .color-default { margin-left: auto; }
 .color-popover-hint { margin: 8px 0 0; font-size: 0.7rem; color: var(--muted); }
 .stat-sub b { font-weight: 600; color: var(--text); }
+/* Door open time: นาทีรวมชิดขวา ตรงกับตัวเลขใหญ่ด้านบน */
+.stat-sub.door-time-sub .door-minutes { margin-left: auto; }
 .chart-panel .cursor-time { margin: 8px 0 0; }
 
 /* จอแนวนอนกว้าง: ตารางวางรอบกราฟ — ซ้าย (SENSOR, CONTROL PANEL) / กราฟ / ขวา (COMPONENT, SYSTEM),

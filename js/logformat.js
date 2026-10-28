@@ -123,6 +123,54 @@ function sensorError(sensorKey, name) {
 // tolerance = ยอมให้ค่าเปลี่ยนได้ rate × ระยะเวลา × slack + 1 (rate = ความเร็วการนับปกติของไฟล์ ต่อวินาที)
 export const POWER_COUNTER = { max: [65535, 4294967295], slack: 2 };
 
+// ---------- Power: หาแถวที่ตัวนับ reset ----------
+// ใช้ทั้งหน้าเว็บ (เส้น Power) และ worker (ช่วงไฟดับ = ช่วงที่ไม่มีข้อมูล ระหว่างแถวก่อนหน้ากับแถวที่ reset)
+// ตัวนับนับขึ้น: ค่าลดลงจากแถวก่อน = reset (ไฟดับแล้วเปิดใหม่ — sampling ห่างก็ยังเห็น แม้ไม่เจอค่า 0)
+//   ยกเว้นแถวก่อนอยู่ใกล้ค่าเต็ม (65535 …) จนนับเกินแล้ววนกลับได้ในช่วงนั้น = นับเกิน ไม่ใช่ reset
+//   ค่า 0 = ยังไม่เริ่มนับหลัง reset → ถือเป็น reset ด้วย
+// ตัวนับนับถอยหลัง (ไฟล์บางรุ่น ค่าลดทีละ 1 ต่อวินาทีเป็นปกติ): reset = ค่าลดลงเร็วกว่าการนับปกติมาก
+// คืน Float32Array: 1 = reset, 0 = ปกติ, NaN = ไม่มีค่า
+export function counterResets(times, raw) {
+  const n = raw.length;
+  const reset = new Float32Array(n).fill(NaN);
+  // สำรวจทั้งไฟล์: ทิศการนับ, ความเร็วการนับปกติ (median ของค่าที่เปลี่ยน / วินาที), ค่าสูงสุด
+  const upRates = [], downRates = [];
+  let fileMax = 0, prev = NaN, prevT = NaN;
+  for (let i = 0; i < n; i++) {
+    const v = raw[i];
+    if (Number.isNaN(v)) continue;
+    if (v > fileMax) fileMax = v;
+    const dt = times[i] - prevT;
+    if (dt > 0) {
+      if (v > prev) upRates.push((v - prev) / dt);
+      else if (v < prev) downRates.push((prev - v) / dt);
+    }
+    prev = v; prevT = times[i];
+  }
+  const counting = upRates.length >= downRates.length ? 1 : -1;
+  const median = (a) => (a.length ? a.sort((x, y) => x - y)[a.length >> 1] : 0);
+  const rate = median(counting > 0 ? upRates : downRates);
+  const max = POWER_COUNTER.max.find((m) => m >= fileMax) ?? fileMax;
+  const allowance = (dt) => rate * Math.max(dt, 1) * POWER_COUNTER.slack + 1;
+
+  prev = NaN; prevT = NaN;
+  for (let i = 0; i < n; i++) {
+    const v = raw[i];
+    if (Number.isNaN(v)) continue;
+    const dt = times[i] - prevT;
+    let isReset = false;
+    if (counting > 0) {
+      if (v === 0) isReset = true;
+      else if (v < prev) isReset = prev + allowance(dt) < max; // ใกล้ค่าเต็ม = นับเกินแล้ววนกลับ
+    } else if (v < prev) {
+      isReset = prev - v > allowance(dt);
+    }
+    reset[i] = isReset ? 1 : 0;
+    prev = v; prevT = times[i];
+  }
+  return reset;
+}
+
 // Damper (Cabin[0].flap): 0 = ปิดสุด, 1850 = เปิดสุด
 export const DAMPER_OPEN = 1850;
 // color: "axis" = สีเดียวกับตัวเลขแกนกราฟ (--muted) เปลี่ยนตามโหมดสว่าง/มืดเอง (ดู resolveColor ใน main.js)
@@ -155,7 +203,7 @@ export const STATUS_ITEMS = [
   { key: "doorOpenTime", timer: ["doorTimer", "doorTimerR"], doorMode: "time", group: "system", kind: "value",
     th: "Door open time (At graph)", en: "Door open time (At graph)" },
   // Power: ProTestTimer เป็นตัวนับ — แถวที่ reset (ไฟดับแล้วเปิดใหม่) → Y = 55, นอกนั้น → Y = 57
-  // (หาจุด reset ด้วย counterResets() ใน main.js — ดู POWER_COUNTER)
+  // (หาจุด reset ด้วย counterResets() ใน logformat.js — ดู POWER_COUNTER)
   { key: "power", column: "ProTestTimer", group: "other", kind: "line", color: "axis",
     th: "Power", en: "Power", yWhenZero: 55, yOtherwise: 57, display: "reset", counterReset: true },
   // Compressor: Cooler.compressor 0–180 (×30 = ค่าจริง) → เส้นขั้นบันไดจาก Y = -45 (0) ถึง Y = -30 (180)

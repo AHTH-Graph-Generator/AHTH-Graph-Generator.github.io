@@ -2,7 +2,7 @@
 // main.js — จุดเริ่มต้นของหน้า Log analyzer (analyze.html) ผูก UI กับ parser / chart / stats
 // ============================================================
 
-import { SENSORS, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN, VALVE_POSITIONS, DAMPER_OPEN, HEATER_STATE, POWER_COUNTER, formatWorkMode, formatDateTime, toInputValue, fromInputValue,
+import { SENSORS, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN, VALVE_POSITIONS, DAMPER_OPEN, HEATER_STATE, counterResets, formatWorkMode, formatDateTime, toInputValue, fromInputValue,
   FILE_TIME_ZONE, listTimeZones, setDisplayTimeZone, getDisplayTimeZone, zoneOffsetLabel } from "./logformat.js";
 import { indexRange, computeStats } from "./stats.js";
 import { createChart, toPlotValues } from "./chart.js";
@@ -325,8 +325,12 @@ function buildItems(result) {
     if (meta.heater) return [buildHeaterItem(meta, raw, result.status[`${meta.key}State`], result.sampling)];
     if (meta.counterReset) {
       const reset = counterResets(result.times, raw);
-      return [{ meta, kind: "line", raw, reset, allZero: false, absent: false, show: !meta.defaultOff,
-        values: toStepValues(reset, { yWhenZero: meta.yOtherwise, yOtherwise: meta.yWhenZero }) }];
+      const values = toStepValues(reset, { yWhenZero: meta.yOtherwise, yOtherwise: meta.yWhenZero });
+      // แถว reset ที่ต่อจากช่วงไฟดับ (worker แทรกช่วงไม่มีข้อมูลไว้ก่อนหน้า) = ไฟกลับมาแล้ว → ON
+      //   ช่วง OFF แสดงด้วยช่วงไม่มีข้อมูลแทน (ไม่งั้นเส้น OFF ยาวเกินเวลาจริงไปอีก 1 แถว)
+      const gapRows = result.gapRows;
+      if (gapRows) for (let i = 1; i < values.length; i++) if (reset[i] === 1 && gapRows[i - 1] === 1) values[i] = meta.yOtherwise;
+      return [{ meta, kind: "line", raw, reset, allZero: false, absent: false, show: !meta.defaultOff, values }];
     }
     // ไม่มีชิ้นส่วนนี้ในตู้ (เช่นไม่มี Ice maker / Refrigerator Evap / พัดลม 0 ทั้งไฟล์) → ไม่เลือกเป็นค่าเริ่มต้น
     const allZero = !!meta.allZeroMeansAbsent && isAllZero(raw);
@@ -471,6 +475,11 @@ function doorOpenSeconds(raw, start, end) {
 const OPEN_TIME_UNITS = [
   { seconds: 86400, msg: "openDays" }, { seconds: 3600, msg: "openHours" }, { seconds: 60, msg: "openMinutes" },
 ];
+// เวลาเปิดประตูเป็นนาทีเสมอ (บรรทัดล่าง) เช่น 45 วินาที → "0.8 นาที", 2 ชม. → "120.0 นาที"
+const fmtOpenMinutes = (seconds) => t(MSG.openMinutes, {
+  n: (seconds / 60).toLocaleString(getLang() === "th" ? "th-TH" : "en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+});
+
 function fmtOpenTime(seconds) {
   const locale = getLang() === "th" ? "th-TH" : "en-US";
   let unit = null;
@@ -481,53 +490,6 @@ function fmtOpenTime(seconds) {
   if (!unit) return t(MSG.openSeconds, { n: fmtInt(Math.round(seconds)) });
   const n = (seconds / unit.seconds).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   return t(MSG[unit.msg], { n });
-}
-
-// ---------- Power: หาแถวที่ตัวนับ reset ----------
-// ตัวนับนับขึ้น: ค่าลดลงจากแถวก่อน = reset (ไฟดับแล้วเปิดใหม่ — sampling ห่างก็ยังเห็น แม้ไม่เจอค่า 0)
-//   ยกเว้นแถวก่อนอยู่ใกล้ค่าเต็ม (65535 …) จนนับเกินแล้ววนกลับได้ในช่วงนั้น = นับเกิน ไม่ใช่ reset
-//   ค่า 0 = ยังไม่เริ่มนับหลัง reset → ถือเป็น reset ด้วย
-// ตัวนับนับถอยหลัง (ไฟล์บางรุ่น ค่าลดทีละ 1 ต่อวินาทีเป็นปกติ): reset = ค่าลดลงเร็วกว่าการนับปกติมาก
-// คืน Float32Array: 1 = reset, 0 = ปกติ, NaN = ไม่มีค่า
-function counterResets(times, raw) {
-  const n = raw.length;
-  const reset = new Float32Array(n).fill(NaN);
-  // สำรวจทั้งไฟล์: ทิศการนับ, ความเร็วการนับปกติ (median ของค่าที่เปลี่ยน / วินาที), ค่าสูงสุด
-  const upRates = [], downRates = [];
-  let fileMax = 0, prev = NaN, prevT = NaN;
-  for (let i = 0; i < n; i++) {
-    const v = raw[i];
-    if (Number.isNaN(v)) continue;
-    if (v > fileMax) fileMax = v;
-    const dt = times[i] - prevT;
-    if (dt > 0) {
-      if (v > prev) upRates.push((v - prev) / dt);
-      else if (v < prev) downRates.push((prev - v) / dt);
-    }
-    prev = v; prevT = times[i];
-  }
-  const counting = upRates.length >= downRates.length ? 1 : -1;
-  const median = (a) => (a.length ? a.sort((x, y) => x - y)[a.length >> 1] : 0);
-  const rate = median(counting > 0 ? upRates : downRates);
-  const max = POWER_COUNTER.max.find((m) => m >= fileMax) ?? fileMax;
-  const allowance = (dt) => rate * Math.max(dt, 1) * POWER_COUNTER.slack + 1;
-
-  prev = NaN; prevT = NaN;
-  for (let i = 0; i < n; i++) {
-    const v = raw[i];
-    if (Number.isNaN(v)) continue;
-    const dt = times[i] - prevT;
-    let isReset = false;
-    if (counting > 0) {
-      if (v === 0) isReset = true;
-      else if (v < prev) isReset = prev + allowance(dt) < max; // ใกล้ค่าเต็ม = นับเกินแล้ววนกลับ
-    } else if (v < prev) {
-      isReset = prev - v > allowance(dt);
-    }
-    reset[i] = isReset ? 1 : 0;
-    prev = v; prevT = times[i];
-  }
-  return reset;
 }
 
 // ---------- Heater ----------
@@ -1144,7 +1106,17 @@ function createStatRow(item) {
   if (item.doors) {
     // Door open count: บรรทัดล่างแยกแต่ละประตูแทน Min / Max / เฉลี่ย · Door open time: ไม่แยกประตู (ตัวจับเวลามีตัวเดียว)
     cursor.title = t(item.absent ? MSG.doorTimeMissing : item.meta.doorMode === "time" ? MSG.doorTimeTitle : MSG.doorCountTitle);
-    if (!item.doors.length) sub.append(t(MSG.doorBoth));
+    if (!item.doors.length) {
+      // Door open time: บรรทัดล่าง = "รวมทั้ง 2 ประตู · <เวลารวมเป็นนาทีเสมอ>" (ตัวใหญ่ปรับหน่วยเอง วินาที/นาที/ชม./วัน)
+      const minutes = document.createElement("b");
+      minutes.className = "num door-minutes";
+      minutes.textContent = "–";
+      // ซ้าย "รวมทั้ง 2 ประตู ·" · ขวา (ตรงกับตัวใหญ่) "(2.3 นาที)" — ผู้ใช้กำหนด
+      const label = document.createElement("span");
+      label.textContent = `${t(MSG.doorBoth)} ·`;
+      sub.classList.add("door-time-sub");
+      sub.append(label, minutes);
+    }
     item.doors.forEach((d) => {
       const part = document.createElement("span");
       const value = document.createElement("b");
@@ -1215,7 +1187,9 @@ function updateStats() {
     if (item.doors) { // Door open count / time: ตัวเลขใหญ่ = รวม, บรรทัดล่าง = แยกแต่ละประตู
       if (item.absent) { tr.querySelector(".cursor").textContent = t(MSG.notPresent); return; }
       if (item.meta.doorMode === "time") {
-        tr.querySelector(".cursor").textContent = fmtOpenTime(doorOpenSeconds(item.timer, start, end));
+        const seconds = doorOpenSeconds(item.timer, start, end);
+        tr.querySelector(".cursor").textContent = fmtOpenTime(seconds);
+        tr.querySelector(".door-minutes").textContent = `(${fmtOpenMinutes(seconds)})`;
         return;
       }
       const counts = doorOpenCounts(item, start, end);
