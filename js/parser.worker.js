@@ -11,7 +11,7 @@
 import {
   SENSORS, GAP_MEDIAN_FACTOR, TEMP_SCALE, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN,
   findColumn, findTimeColumn, formatSoftware, toSigned8, heaterCategory, normalizeName, parseMetadata, parseIntStrict,
-  parseDateParts, dateOrderHint, defaultDateOrder, partsToEpoch, counterResets,
+  parseDateParts, dateOrderHint, defaultDateOrder, partsToEpoch, counterResets, counterProfile, counterContinued,
 } from "./logformat.js";
 import { readTextRecords, readXlsxRecords, isZipFile, XlsxError } from "./sources.js";
 import { isEspHeader, decodeEspFields, ESP_TIME_COLUMN, ESP_COLUMN_NAMES } from "./espdecoder.js";
@@ -125,28 +125,36 @@ function samplingSeconds(times) {
 }
 
 // ช่วงข้อมูลขาด → แทรก 3 แถว ค่าเป็น NaN ทุกคอลัมน์: ต้นช่วง / กลางช่วง / ท้ายช่วง
-//   gapRows: 1 = แถวต้น/ท้ายช่วง (ขอบ), 2 = แถวกลางช่วง (ตัดเส้นให้ช่วงนั้นโล่ง) — หน้าเว็บกำหนดค่าที่วาดเอง (fillGaps ใน main.js)
-// ช่วงขาด = ห่างเกิน GAP_MEDIAN_FACTOR × sampling หรือ breaks[i] = 1 (ตัวนับ Power reset ที่แถว i = ไฟดับระหว่างแถว i-1 กับ i — ผู้ใช้กำหนด)
+//   gapRows: 1 / 2 = ไฟดับ (ขอบ / กลางช่วง), 3 / 4 = ข้อมูลหายอย่างเดียว (ขอบ / กลางช่วง) — หน้าเว็บกำหนดค่าที่วาดเอง (fillGaps ใน main.js)
+//   gaps: [{ start, end, powerOff }] เวลาแถวจริงก่อน / หลังช่วง — ใช้วาดข้อความกลางช่วงบนกราฟ
+// ช่วงขาด = ห่างเกิน GAP_MEDIAN_FACTOR × sampling หรือตัวนับ Power reset ที่แถว i (ไฟดับระหว่างแถว i-1 กับ i — ผู้ใช้กำหนด)
+// ไฟดับหรือแค่ข้อมูลหาย: reset = ไฟดับ, ตัวนับเพิ่มตามเวลาที่ผ่านไป = ข้อมูลหาย (WiFi หลุด), เพิ่มน้อยกว่านั้นชัดเจน = ไฟดับ
 // changeLists: [[{ index, ... }]] รายการจุดเปลี่ยน (software / work mode) — index ถูกเลื่อนตามแถวที่แทรก
-function insertGaps(times, columns, changeLists, breaks = null) {
+function insertGaps(times, columns, changeLists, power = null) {
   const sampling = samplingSeconds(times);
   const threshold = Number.isNaN(sampling) ? Infinity : GAP_MEDIAN_FACTOR * sampling;
-  const isGap = (i) => times[i] - times[i - 1] > threshold || (breaks !== null && breaks[i] === 1);
+  const isGap = (i) => times[i] - times[i - 1] > threshold || (power !== null && power.breaks[i] === 1);
+  const powerWasOff = (i) => power !== null && (power.breaks[i] === 1
+    || !counterContinued(power.profile, power.raw[i - 1], power.raw[i], times[i] - times[i - 1]));
   let gaps = 0;
   for (let i = 1; i < times.length; i++) if (isGap(i)) gaps++;
-  if (gaps === 0) return { times, columns, gapRows: new Uint8Array(times.length), gapCount: 0, gapThreshold: threshold, sampling };
+  if (gaps === 0) return { times, columns, gapRows: new Uint8Array(times.length), gaps: [], gapCount: 0, gapThreshold: threshold, sampling };
 
   const size = times.length + gaps * 3;
   const outTimes = new Float64Array(size);
   const outColumns = columns.map(() => new Float32Array(size));
   const gapRows = new Uint8Array(size);
+  const gapList = [];
   let j = 0;
   const pointers = changeLists.map(() => 0);
   for (let i = 0; i < times.length; i++) {
     if (i > 0 && isGap(i)) {
       // ขอบช่วงห่างจากแถวจริง 1 วินาที (ช่วงสั้นกว่านั้น เช่น log 1 วินาที → 1/4 ของช่วง) เวลาไม่ย้อนกลับ
       const a = times[i - 1], b = times[i], edge = Math.min(1, (b - a) / 4);
-      for (const [t, kind] of [[a + edge, 1], [(a + b) / 2, 2], [b - edge, 1]]) {
+      const powerOff = powerWasOff(i);
+      gapList.push({ start: a, end: b, powerOff });
+      const base = powerOff ? 0 : 2; // ขอบ 1 / 3, กลาง 2 / 4
+      for (const [t, kind] of [[a + edge, base + 1], [(a + b) / 2, base + 2], [b - edge, base + 1]]) {
         outTimes[j] = t;
         outColumns.forEach((c) => { c[j] = NaN; });
         gapRows[j] = kind;
@@ -160,7 +168,7 @@ function insertGaps(times, columns, changeLists, breaks = null) {
     columns.forEach((c, k) => { outColumns[k][j] = c[i]; });
     j++;
   }
-  return { times: outTimes, columns: outColumns, gapRows, gapCount: gaps, gapThreshold: threshold, sampling };
+  return { times: outTimes, columns: outColumns, gapRows, gaps: gapList, gapCount: gaps, gapThreshold: threshold, sampling };
 }
 
 // แถวที่ตัวนับ Power เริ่ม reset → Uint8Array 1 = ตัดก่อนแถวนี้
@@ -337,8 +345,9 @@ function createParser() {
     const times = state.times.toArray();
     // ตัวนับ Power reset = ไฟดับระหว่างแถวก่อนหน้ากับแถวนั้น → ตัดทุกเส้นเหมือนช่วงไม่มีข้อมูล
     const powerIdx = state.columns.statuses.findIndex((st) => st.key === POWER_KEY);
-    const breaks = powerIdx >= 0 ? powerBreaks(times, rawColumns[sensorCount + powerIdx]) : null;
-    const gapped = insertGaps(times, rawColumns, [state.softwareChanges, state.workModeChanges], breaks);
+    const powerRaw = powerIdx >= 0 ? rawColumns[sensorCount + powerIdx] : null;
+    const power = powerRaw ? { raw: powerRaw, breaks: powerBreaks(times, powerRaw), profile: counterProfile(times, powerRaw) } : null;
+    const gapped = insertGaps(times, rawColumns, [state.softwareChanges, state.workModeChanges], power);
     const series = state.columns.sensors.map((s, i) => ({
       key: s.key,
       values: gapped.columns[i],
@@ -350,6 +359,7 @@ function createParser() {
       metadataMissing: state.metadataMissing,
       times: gapped.times,
       gapRows: gapped.gapRows,
+      gaps: gapped.gaps,
       series,
       missing: state.columns.missing,
       // { key: Float32Array ค่าดิบ } เฉพาะคอลัมน์สถานะที่มีในไฟล์

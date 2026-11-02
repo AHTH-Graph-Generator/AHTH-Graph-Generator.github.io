@@ -121,7 +121,8 @@ function sensorError(sensorKey, name) {
 // ตัวนับของ Power (ProTestTimer): นับขึ้นเรื่อยๆ ตั้งแต่เปิดเครื่อง → ค่าลดลงจากแถวก่อน = reset (ไฟดับแล้วเปิดใหม่)
 // ยกเว้นนับจนเต็มค่าที่เก็บได้แล้ววนกลับ (นับเกิน ไม่ใช่ reset) — ค่าเต็มเลือกตัวแรกที่ ≥ ค่าสูงสุดในไฟล์
 // tolerance = ยอมให้ค่าเปลี่ยนได้ rate × ระยะเวลา × slack + 1 (rate = ความเร็วการนับปกติของไฟล์ ต่อวินาที)
-export const POWER_COUNTER = { max: [65535, 4294967295], slack: 2 };
+// gapMatch: ช่วงข้อมูลหาย — ตัวนับต้องเพิ่มอย่างน้อยเท่านี้ของเวลาที่ผ่านไป ถึงถือว่าตู้ทำงานต่อเนื่อง (ไฟไม่ได้ดับ)
+export const POWER_COUNTER = { max: [65535, 4294967295], slack: 2, gapMatch: 0.9 };
 
 // ---------- Power: หาแถวที่ตัวนับ reset ----------
 // ใช้ทั้งหน้าเว็บ (เส้น Power) และ worker (ช่วงไฟดับ = ช่วงที่ไม่มีข้อมูล ระหว่างแถวก่อนหน้ากับแถวที่ reset)
@@ -133,7 +134,30 @@ export const POWER_COUNTER = { max: [65535, 4294967295], slack: 2 };
 export function counterResets(times, raw) {
   const n = raw.length;
   const reset = new Float32Array(n).fill(NaN);
-  // สำรวจทั้งไฟล์: ทิศการนับ, ความเร็วการนับปกติ (median ของค่าที่เปลี่ยน / วินาที), ค่าสูงสุด
+  const { counting, rate, max } = counterProfile(times, raw);
+  const allowance = (dt) => rate * Math.max(dt, 1) * POWER_COUNTER.slack + 1;
+
+  let prev = NaN, prevT = NaN;
+  for (let i = 0; i < n; i++) {
+    const v = raw[i];
+    if (Number.isNaN(v)) continue;
+    const dt = times[i] - prevT;
+    let isReset = false;
+    if (counting > 0) {
+      if (v === 0) isReset = true;
+      else if (v < prev) isReset = prev + allowance(dt) < max; // ใกล้ค่าเต็ม = นับเกินแล้ววนกลับ
+    } else if (v < prev) {
+      isReset = prev - v > allowance(dt);
+    }
+    reset[i] = isReset ? 1 : 0;
+    prev = v; prevT = times[i];
+  }
+  return reset;
+}
+
+// สำรวจตัวนับทั้งไฟล์: ทิศการนับ (1 / -1), ความเร็วการนับปกติ (median ของค่าที่เปลี่ยน / วินาที), ค่าเต็ม
+export function counterProfile(times, raw) {
+  const n = raw.length;
   const upRates = [], downRates = [];
   let fileMax = 0, prev = NaN, prevT = NaN;
   for (let i = 0; i < n; i++) {
@@ -151,25 +175,22 @@ export function counterResets(times, raw) {
   const median = (a) => (a.length ? a.sort((x, y) => x - y)[a.length >> 1] : 0);
   const rate = median(counting > 0 ? upRates : downRates);
   const max = POWER_COUNTER.max.find((m) => m >= fileMax) ?? fileMax;
-  const allowance = (dt) => rate * Math.max(dt, 1) * POWER_COUNTER.slack + 1;
-
-  prev = NaN; prevT = NaN;
-  for (let i = 0; i < n; i++) {
-    const v = raw[i];
-    if (Number.isNaN(v)) continue;
-    const dt = times[i] - prevT;
-    let isReset = false;
-    if (counting > 0) {
-      if (v === 0) isReset = true;
-      else if (v < prev) isReset = prev + allowance(dt) < max; // ใกล้ค่าเต็ม = นับเกินแล้ววนกลับ
-    } else if (v < prev) {
-      isReset = prev - v > allowance(dt);
-    }
-    reset[i] = isReset ? 1 : 0;
-    prev = v; prevT = times[i];
-  }
-  return reset;
+  return { counting, rate, max };
 }
+
+// ตัวนับนับต่อเนื่องข้ามช่วงที่ข้อมูลหายไหม (prev → next ห่าง dt วินาที)
+//   เพิ่มตามเวลาที่ผ่านไป = ตู้ทำงานตลอด (ข้อมูลหายอย่างเดียว เช่น WiFi หลุด) · น้อยกว่านั้นชัดเจน = ไฟดับกลางช่วง
+//   ตัดสินไม่ได้ (ไม่มีค่า / นับถอยหลัง / ตัวนับไม่เดิน) = true — ไม่มีหลักฐานว่าไฟดับ
+export function counterContinued(profile, prev, next, dt) {
+  if (Number.isNaN(prev) || Number.isNaN(next)) return true;
+  const { counting, rate, max } = profile;
+  if (counting < 0 || rate === 0) return true;
+  const delta = next >= prev ? next - prev : next + max + 1 - prev; // ค่าน้อยลง = นับเกินแล้ววนกลับ
+  return delta >= rate * dt * POWER_COUNTER.gapMatch;
+}
+
+// สีช่วงขาดบนกราฟ (ข้อความ + แถบพื้นหลังจาง) ผู้ใช้เลือก — ใช้ชุดเดียวทั้ง 2 โหมด, contrast ≥ 3:1 ทั้งพื้นขาวและพื้นมืด
+export const GAP_COLORS = { powerOff: "#E5484D", noData: "#C77700" };
 
 // Damper (Cabin[0].flap): 0 = ปิดสุด, 1850 = เปิดสุด
 export const DAMPER_OPEN = 1850;

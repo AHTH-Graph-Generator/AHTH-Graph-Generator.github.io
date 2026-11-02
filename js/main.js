@@ -2,7 +2,7 @@
 // main.js — จุดเริ่มต้นของหน้า Log analyzer (analyze.html) ผูก UI กับ parser / chart / stats
 // ============================================================
 
-import { SENSORS, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN, VALVE_POSITIONS, DAMPER_OPEN, HEATER_STATE, counterResets, formatWorkMode, formatDateTime, toInputValue, fromInputValue,
+import { SENSORS, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN, VALVE_POSITIONS, DAMPER_OPEN, HEATER_STATE, GAP_COLORS, counterResets, formatWorkMode, formatDateTime, toInputValue, fromInputValue,
   FILE_TIME_ZONE, listTimeZones, setDisplayTimeZone, getDisplayTimeZone, zoneOffsetLabel } from "./logformat.js";
 import { indexRange, computeStats } from "./stats.js";
 import { createChart, toPlotValues } from "./chart.js";
@@ -45,7 +45,8 @@ const MSG = {
   noSensorData:   { th: "(0 ทั้งไฟล์)", en: "(all zero)" },
   saveFailed:     { th: "บันทึกรูปไม่สำเร็จ", en: "Could not save the image." },
   notPresent:     { th: "ไม่มี", en: "N/A" },
-  gapNoData:      { th: "ไม่มีข้อมูล", en: "no data" },
+  gapNoData:      { th: "ไม่ได้รับข้อมูล", en: "No data received" },
+  gapPowerOff:    { th: "ไฟดับ", en: "Power off" },
   doorCountTitle: { th: "จำนวนครั้งที่เปิด-ปิดประตู ในช่วงที่เลือก (ไม่ได้เลือก = ช่วงที่แสดงบนกราฟ) — จากสวิตช์ประตู + ตัวจับเวลาเพิ่มขึ้นโดยสวิตช์ไม่เห็น (นับที่ประตู R)", en: "Door open-close count in the selected range (or the visible range if nothing is selected), from door switches plus timer increases the switches missed (counted on door R)" },
   doorTimeTitle:  { th: "เวลาเปิดประตูรวมทั้ง 2 ประตู ในช่วงที่เลือก (ไม่ได้เลือก = ช่วงที่แสดงบนกราฟ) — จาก Cabin[1].defrostDelayTimer", en: "Total open time of both doors in the selected range (or the visible range if nothing is selected), from Cabin[1].defrostDelayTimer" },
   doorBoth:       { th: "รวมทั้ง 2 ประตู", en: "Both doors" },
@@ -349,18 +350,17 @@ function buildItems(result) {
 }
 
 // ---------- ช่วงที่ไม่มีข้อมูล (ข้อมูลขาดเกิน 3 × sampling) ----------
-// worker แทรกแถว ต้นช่วง / กลางช่วง / ท้ายช่วง ไว้ (gapRows 1 = ขอบ, 2 = กลาง; ค่าเป็น NaN) → ค่าที่วาดบนกราฟ (ผู้ใช้กำหนด 2026-10-19):
-//   Power = OFF ลากยาวตลอดช่วง (ตำแหน่ง reset) ให้รู้ว่าไฟดับ
-//   เซนเซอร์ = เส้นขาดตลอดช่วง (จบที่ค่าสุดท้ายก่อนหาย เริ่มใหม่ที่ค่าแรกหลังกลับมา)
-//   ชิ้นส่วน / System state / Heater = ขอบช่วงอยู่ตำแหน่ง OFF จุดเดียว แล้วช่วงกลางโล่ง
-//   แผงควบคุม / Error / Other / Temp work confirm = ไม่วาด (ค่า ณ เคอร์เซอร์ของแผงควบคุม = N/A)
+// worker แทรกแถว ต้นช่วง / กลางช่วง / ท้ายช่วง ไว้ (ค่าเป็น NaN) แยก 2 แบบ (ผู้ใช้กำหนด):
+//   ไฟดับ (gapRows 1 = ขอบ, 2 = กลาง): Power OFF ลากยาว · ชิ้นส่วน / System state / Heater ลงตำแหน่ง OFF ที่ขอบ แล้วช่วงกลางโล่ง
+//   ข้อมูลหาย เช่น WiFi หลุด (3 = ขอบ, 4 = กลาง — ตัวนับนับต่อเนื่อง ตู้ทำงานตลอด): Power ON ลากต่อเนื่อง · เส้นอื่นขาดอย่างเดียว ไม่รู้ว่าตอนนั้นทำงานหรือไม่
+//   ทั้ง 2 แบบ: เซนเซอร์เส้นขาด · แผงควบคุม / Error / Other / Temp work confirm ไม่วาด (ค่า ณ เคอร์เซอร์ของแผงควบคุม = N/A)
 // เปลี่ยนเฉพาะค่าที่วาด (values) — ค่าดิบ (raw) ยังเป็น NaN → Min / Max / เฉลี่ย ไม่นับช่วงนี้
 
-// { edge, middle } ค่าที่วาดที่แถวขอบ / แถวกลาง (null = ไม่วาด) หรือ null ถ้าไม่ต้องแก้
+// { edge, middle, lost } ค่าที่วาดที่แถวขอบไฟดับ / กลางไฟดับ / ข้อมูลหาย (null = ไม่วาด) หรือ null ถ้าไม่ต้องแก้
 function gapPlotValues(item) {
   if (item.kind !== "line" || item.meta.temp) return null;
-  if (item.meta.counterReset) return { edge: item.meta.yWhenZero, middle: item.meta.yWhenZero }; // Power: ไฟดับตลอดช่วง
-  return { edge: toStepValues([0], item.meta)[0], middle: null }; // ตำแหน่งของค่า 0 = OFF / ปิด
+  if (item.meta.counterReset) return { edge: item.meta.yWhenZero, middle: item.meta.yWhenZero, lost: item.meta.yOtherwise };
+  return { edge: toStepValues([0], item.meta)[0], middle: null, lost: null }; // ตำแหน่งของค่า 0 = OFF / ปิด
 }
 
 function fillGaps(items, gapRows) {
@@ -370,20 +370,22 @@ function fillGaps(items, gapRows) {
     const y = gapPlotValues(item);
     if (!y) continue;
     for (let i = 0; i < gapRows.length; i++) {
-      if (gapRows[i] === 1) item.values[i] = y.edge;
-      else if (gapRows[i] === 2) item.values[i] = y.middle;
+      const g = gapRows[i];
+      if (g === 1) item.values[i] = y.edge;
+      else if (g === 2) item.values[i] = y.middle;
+      else if (g >= 3) item.values[i] = y.lost;
     }
   }
 }
 
 const gapRowKind = (idx) => (loaded.result.gapRows ? loaded.result.gapRows[idx] : 0);
 
-// ค่า ณ เคอร์เซอร์ในช่วงที่ไม่มีข้อมูล: Power = OFF, แผงควบคุม = N/A,
-// ชิ้นส่วน / System state / Heater = OFF เฉพาะจุดขอบ (ตรงกับที่วาด) — นอกนั้น "–"
+// ค่า ณ เคอร์เซอร์ในช่วงที่ไม่มีข้อมูล: Power = OFF (ไฟดับ) / ON (ข้อมูลหาย), แผงควบคุม = N/A,
+// ชิ้นส่วน / System state / Heater = OFF เฉพาะจุดขอบของช่วงไฟดับ (ตรงกับที่วาด) — นอกนั้น "–"
 function gapCursorText(item, kind) {
   if (item.meta.group === "control") return "N/A";
   if (item.kind !== "line" || item.meta.temp) return "–";
-  if (item.meta.counterReset) return "OFF";
+  if (item.meta.counterReset) return kind <= 2 ? "OFF" : "ON";
   if (kind !== 1) return "–";
   if (item.meta.heater) return "OFF";
   switch (item.meta.display) {
@@ -859,7 +861,8 @@ function buildChart() {
   }
   chart = createChart(el.chart, result.times, seriesList,
     { onRange: updateRange, onCursor: updateCursor, onSelect: updateStats, formatDuration: fmtDuration,
-      onDoublePick: showRawData },
+      onDoublePick: showRawData,
+      gaps: result.gaps, gapLabel: (gap) => t(gap.powerOff ? MSG.gapPowerOff : MSG.gapNoData), gapColor: (gap) => (gap.powerOff ? GAP_COLORS.powerOff : GAP_COLORS.noData) },
     markerLayers, loaded.notes);
   // สร้างกราฟใหม่ (เปลี่ยนโหมดสว่าง/มืด) → คงโหมดวาดและสีเดิม
   chart.setDrawColor(drawState.color);
@@ -1261,7 +1264,7 @@ function updateCursor(idx) {
   if (!loaded) return;
   const valid = idx != null && idx >= 0 && idx < loaded.result.times.length;
   el.cursorTime.textContent = valid
-    ? formatDateTime(loaded.result.times[idx]) + (gapRowKind(idx) ? ` (${t(MSG.gapNoData)})` : "") : "–";
+    ? formatDateTime(loaded.result.times[idx]) + (gapRowKind(idx) ? ` (${t(gapRowKind(idx) <= 2 ? MSG.gapPowerOff : MSG.gapNoData)})` : "") : "–";
   el.cursorSoftware.textContent = valid ? (softwareBefore(idx + 1) ?? "–") : "–";
   el.cursorWorkMode.textContent = valid ? (workModeBefore(idx + 1) ?? "–") : "–";
   loaded.items.forEach((item, i) => {

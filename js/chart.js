@@ -18,6 +18,7 @@ const WHEEL_ZOOM_FACTOR = 0.8;   // หมุนเข้า 1 ครั้ง =
 const MIN_SPAN_SECONDS = 10;     // zoom เข้าได้แคบสุด
 const CLICK_TOLERANCE_PX = 3;    // ขยับน้อยกว่านี้ถือว่าเป็นการคลิก ไม่ใช่การลาก
 const MARKER_SIZE = 3;           // รัศมี/ครึ่งความกว้างของ marker (px, CSS) — เล็กพอให้รู้ว่ามี
+const GAP_BAND_ALPHA = 0.05;     // ความทึบแถบพื้นหลังช่วงขาด
 const MARKER_GAP = 10;           // ระยะห่างขั้นต่ำระหว่าง marker (px, CSS) — ช่วงที่ค่าค้างนานจะเป็นแถวจุดเรียงกัน ไม่ทับกันเป็นแถบ
 
 // แสดงเวลาตาม time zone ที่ผู้ใช้เลือก (ค่าเริ่มต้น = เวลาในไฟล์) — toDisplayEpoch คืนเวลาแบบ UTC-wall
@@ -377,6 +378,65 @@ function drawMarkerLayer(u, times, layer) {
   ctx.restore();
 }
 
+// แถบพื้นหลังจางเต็มความสูงของช่วงที่ไม่มีข้อมูล (วาดก่อนเส้นกราฟ) — ซูมออกจนข้อความไม่พอวางก็ยังเห็น กว้างอย่างน้อย 1 pixel
+function drawGapBands(u, gaps, colorOf) {
+  const { ctx, bbox } = u;
+  const ratio = window.devicePixelRatio || 1;
+  const left = bbox.left, right = bbox.left + bbox.width;
+  ctx.save();
+  ctx.globalAlpha = GAP_BAND_ALPHA;
+  for (const gap of gaps) {
+    const x0 = Math.max(u.valToPos(gap.start, "x", true), left);
+    const x1 = Math.min(u.valToPos(gap.end, "x", true), right);
+    if (x1 <= left || x0 >= right) continue;
+    ctx.fillStyle = colorOf(gap);
+    ctx.fillRect(x0, bbox.top, Math.max(x1 - x0, ratio), bbox.height);
+  }
+  ctx.restore();
+}
+
+// ข้อความกลางช่วงที่ไม่มีข้อมูล  |<---- ไม่ได้รับข้อมูล ---->|  อยู่กึ่งกลางความสูงกราฟ (ติดไปกับรูปที่บันทึกด้วย)
+// ช่วงแคบกว่าข้อความ = ไม่วาด · แคบกว่าข้อความ + ลูกศร = วาดแค่ข้อความ
+function drawGapLabels(u, gaps, labelOf, colorOf) {
+  const { ctx, bbox } = u;
+  const ratio = window.devicePixelRatio || 1;
+  const left = bbox.left, right = bbox.left + bbox.width;
+  const y = bbox.top + bbox.height / 2;
+  const pad = 6 * ratio, head = 5 * ratio, tick = 6 * ratio;
+  ctx.save();
+  ctx.font = `${Math.round(12 * ratio)}px "Segoe UI", "Tahoma", "Noto Sans Thai", sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = ratio;
+  ctx.setLineDash([]); // ไม่ให้รับเส้นประจากเส้นกราฟที่วาดก่อนหน้า
+  for (const gap of gaps) {
+    const startX = u.valToPos(gap.start, "x", true), endX = u.valToPos(gap.end, "x", true);
+    const x0 = Math.max(startX, left), x1 = Math.min(endX, right);
+    if (x1 <= x0) continue;
+    const text = labelOf(gap);
+    const half = ctx.measureText(text).width / 2 + pad;
+    if (x1 - x0 < half * 2) continue;
+    const mid = (x0 + x1) / 2;
+    ctx.fillStyle = ctx.strokeStyle = colorOf(gap);
+    ctx.fillText(text, mid, y);
+    if (x1 - x0 < half * 2 + head * 6) continue;
+    ctx.beginPath();
+    ctx.moveTo(x0, y); ctx.lineTo(mid - half, y);
+    ctx.moveTo(mid + half, y); ctx.lineTo(x1, y);
+    // ขีดตั้ง + หัวลูกศร เฉพาะด้านที่เห็นขอบช่วงจริง (ซูมจนขอบหลุดจอ = ไม่มี)
+    if (x0 === startX) {
+      ctx.moveTo(x0, y - tick); ctx.lineTo(x0, y + tick);
+      ctx.moveTo(x0 + head, y - head); ctx.lineTo(x0, y); ctx.lineTo(x0 + head, y + head);
+    }
+    if (x1 === endX) {
+      ctx.moveTo(x1, y - tick); ctx.lineTo(x1, y + tick);
+      ctx.moveTo(x1 - head, y - head); ctx.lineTo(x1, y); ctx.lineTo(x1 - head, y + head);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function lowerBound(times, target) {
   let lo = 0, hi = times.length;
   while (lo < hi) {
@@ -490,8 +550,10 @@ export function createChart(container, times, seriesList, handlers, markerLayers
         handlers.onRange(u.scales.x.min, u.scales.x.max);
       }],
       setSize: [(u) => { drawSelection(u); annotator?.resize(); }],
+      drawClear: [(u) => { if (handlers.gaps?.length) drawGapBands(u, handlers.gaps, handlers.gapColor); }],
       draw: [(u) => {
         markerLayers.forEach((layer) => layer.show && drawMarkerLayer(u, times, layer));
+        if (handlers.gaps?.length) drawGapLabels(u, handlers.gaps, handlers.gapLabel, handlers.gapColor);
         drawAnnotations(u, notes.strokes); // โน้ตวาดทับบนสุด
       }],
       ready: [(u) => {
@@ -524,7 +586,7 @@ export function createChart(container, times, seriesList, handlers, markerLayers
       drawSelection(plot);
       handlers.onSelect({ ...selection });
     },
-    refreshLabels: () => updateSpanLabel(plot), // เรียกหลังเปลี่ยนภาษา
+    refreshLabels: () => { updateSpanLabel(plot); plot.redraw(false); }, // เรียกหลังเปลี่ยนภาษา (ป้ายระยะเวลา + ข้อความกลางช่วงที่ไม่มีข้อมูล)
     redrawAxes: () => plot.redraw(false, true), // เรียกหลังเปลี่ยน time zone (ตัวเลขเวลาบนแกน X)
     // ---- โน้ต ----
     setDrawMode: (mode) => { drawSettings.mode = mode; annotator?.setMode(mode); },   // null | "pen" | "eraser"
