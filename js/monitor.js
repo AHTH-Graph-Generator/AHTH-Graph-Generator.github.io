@@ -22,7 +22,7 @@ import {
 import { isEspHeader, decodeEspFields, ESP_COLUMN_NAMES } from "./espdecoder.js";
 import {
   SENSORS, STATUS_ITEMS, SOFTWARE_COLUMNS, GAP_MEDIAN_FACTOR, formatDateTime, formatSoftware,
-  parseDateParts, partsToEpoch, toDisplayEpoch, toSigned8, TEMP_SCALE,
+  parseDateParts, partsToEpoch, toDisplayEpoch, toSigned8, TEMP_SCALE, highTempShifted,
 } from "./logformat.js";
 
 const uPlot = window.uPlot;
@@ -81,6 +81,16 @@ function renderSoon() {
 }
 const plots = new Map(); // ชื่อ device → uPlot (ทำลายก่อนวาดใหม่)
 const col = (name) => ESP_COLUMN_NAMES.indexOf(name);
+
+// คอลัมน์ High temp error ตัวจริงของเครื่องนี้ (บางเฟิร์มแวร์ชื่อเลื่อน → doorsClosed) — ตัดสินแบบเดียวกับหน้ากราฟ
+function highTempColumn(rows) {
+  const series = (name) => (col(name) >= 0 ? rows.map((r) => r.values[col(name)]) : null);
+  const { shifted } = highTempShifted({
+    errHighTemp: series("errHighTemp"), doorsClosed: series("doorsClosed"), doorsClosedState: series("doorsClosedState"),
+    doorR: series("Cabin[0].doorSwitch0"), doorF: series("Cabin[1].doorSwitch0"), timer: series("Cabin[1].highTempChckTimer"),
+  });
+  return shifted ? "doorsClosed" : "errHighTemp";
+}
 
 // ถอดทุกแถวของไฟล์ CSV ดิบ → [{ time, values }] (ข้ามแถวที่ frame เสีย)
 function decodeRows(text) {
@@ -272,6 +282,7 @@ function deviceCard({ name, dev, data, status }) {
   control.append(controlList);
   a.append(control);
 
+  const htShifted = highTempColumn(data.rows) === "doorsClosed";
   // ใส่ค่าของแถว row ลงการ์ด (ค่าล่าสุด หรือค่า ณ จุดที่ชี้บนกราฟ)
   const fill = (row) => {
     const v = (field) => row.values[col(field)];
@@ -285,6 +296,7 @@ function deviceCard({ name, dev, data, status }) {
       let text;
       if (item.signed8) text = `${toSigned8(raw)} °C`;
       else if (item.requires === "iceMachine" && !hasIceMaker) text = t(MSG.notPresent);
+      else if (item.dispenserLock && !htShifted) text = t(MSG.notPresent); // เฟิร์มแวร์นี้ไม่มีบิตล็อกปุ่มดิสเพนเซอร์
       else if (item.display === "dial") text = raw === 1 ? "OFF" : "ON"; // IceMachine.iceOFF: 1 = ปิด, 0 = เปิด
       else text = raw !== 0 ? "ON" : "OFF";
       value.textContent = text;
@@ -296,7 +308,7 @@ function deviceCard({ name, dev, data, status }) {
   // ข้อความแจ้งเตือนอยู่ท้ายการ์ด (เหนือ "ปรับปรุงล่าสุด") — ส่วนข้อมูลของทุกการ์ดจะได้อยู่ระดับเดียวกัน
   const lastValue = (field) => data.last.values[col(field)];
   const alerts = [];
-  if (lastValue("errHighTemp")) alerts.push(t(MSG.highTemp));
+  if (lastValue(htShifted ? "doorsClosed" : "errHighTemp")) alerts.push(t(MSG.highTemp));
   if (SENSOR_ERRORS.some((f) => lastValue(f) !== 0)) alerts.push(t(MSG.sensorErr));
   const notes = [];
   if (alerts.length) notes.push(el("div", "device-alert", `⚠ ${alerts.join(" · ")}`));

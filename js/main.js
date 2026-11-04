@@ -2,7 +2,7 @@
 // main.js — จุดเริ่มต้นของหน้า Log analyzer (analyze.html) ผูก UI กับ parser / chart / stats
 // ============================================================
 
-import { SENSORS, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN, VALVE_POSITIONS, DAMPER_OPEN, HEATER_STATE, GAP_COLORS, counterResets, formatWorkMode, formatDateTime, toInputValue, fromInputValue,
+import { SENSORS, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN, VALVE_POSITIONS, DAMPER_OPEN, HEATER_STATE, GAP_COLORS, counterResets, highTempShifted, formatWorkMode, formatDateTime, toInputValue, fromInputValue,
   FILE_TIME_ZONE, listTimeZones, setDisplayTimeZone, getDisplayTimeZone, zoneOffsetLabel } from "./logformat.js";
 import { indexRange, computeStats } from "./stats.js";
 import { createChart, toPlotValues } from "./chart.js";
@@ -321,8 +321,13 @@ function buildItems(result) {
       if (absent && meta.doorMode === "count") return [];
       return [{ meta, kind: "value", raw: null, doors, timer, times: result.times, absent, show: true }];
     }
-    const raw = result.status[meta.key];
+    const raw = meta.highTempLayout ? highTempRaw(result) : result.status[meta.key];
     if (!raw) return [];
+    // Dispenser key lock: มีเฉพาะเฟิร์มแวร์ที่ชื่อเลื่อน — ไม่เลื่อน = ไม่มีบิตนี้ (N/A)
+    if (meta.dispenserLock) {
+      const absent = !highTempLayoutOf(result).shifted;
+      return [{ meta, kind: meta.kind, raw, allZero: false, absent, show: !absent, values: null }];
+    }
     if (meta.heater) return [buildHeaterItem(meta, raw, result.status[`${meta.key}State`], result.sampling)];
     if (meta.counterReset) {
       const reset = counterResets(result.times, raw);
@@ -347,6 +352,23 @@ function buildItems(result) {
   const items = [...sensors, ...statuses];
   fillGaps(items, result.gapRows);
   return items;
+}
+
+// High temp error: คอลัมน์จริงขึ้นกับเฟิร์มแวร์ (ดู highTempShifted ใน logformat.js)
+//   ชื่อเลื่อน → error ตัวจริงอยู่คอลัมน์ doorsClosed (คอลัมน์ errHighTemp = ล็อกปุ่มดิสเพนเซอร์)
+function highTempLayoutOf(result) {
+  if (!result.highTempLayout) {
+    const st = result.status;
+    result.highTempLayout = highTempShifted({
+      errHighTemp: st.highTempError, doorsClosed: st.doorsClosedBit, doorsClosedState: st.doorsClosedStateBit,
+      doorR: st.doorFc, doorF: st.doorFz, timer: st.highTempTimer,
+    });
+  }
+  return result.highTempLayout;
+}
+function highTempRaw(result) {
+  const st = result.status;
+  return highTempLayoutOf(result).shifted ? st.doorsClosedBit || null : st.highTempError;
 }
 
 // ---------- ช่วงที่ไม่มีข้อมูล (ข้อมูลขาดเกิน 3 × sampling) ----------
@@ -1056,6 +1078,8 @@ function createSwatch(item) {
   }
   else if (shape === "dot") add("circle", { cx: 8, cy: 5, r: 3, fill: color, stroke: "none" });
   else if (shape === "circle") add("circle", { cx: 8, cy: 5, r: 3 });
+  else if (shape === "triangle") add("path", { d: "M8,0.6 L12.3,8.1 L3.7,8.1 Z" });
+  else if (shape === "smallDot") add("circle", { cx: 8, cy: 5.6, r: 1.8, fill: color, stroke: "none" });
   else if (shape === "cross") add("path", { d: "M5,2 L11,8 M5,8 L11,2" });
   else if (shape === "dash") add("line", { x1: 3.5, y1: 5, x2: 12.5, y2: 5, "stroke-width": 2 });
   return svg;

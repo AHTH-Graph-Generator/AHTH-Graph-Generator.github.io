@@ -322,7 +322,18 @@ function drawShape(ctx, shape, x, y, ratio) {
     ctx.fill();
     return;
   }
-  if (shape === "circle") ctx.arc(x, y, s, 0, Math.PI * 2);
+  if (shape === "smallDot") { // จุดเล็ก — พอดีกลางสามเหลี่ยม (Dispenser key lock ซ้อนกับ Key lock)
+    ctx.arc(x, y, s * 0.6, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  if (shape === "triangle") { // สามเหลี่ยมโปร่ง จุดศูนย์กลางที่ (x, y)
+    const r = s * 1.8;
+    ctx.moveTo(x, y - r);
+    ctx.lineTo(x + r * 0.866, y + r / 2);
+    ctx.lineTo(x - r * 0.866, y + r / 2);
+    ctx.closePath();
+  } else if (shape === "circle") ctx.arc(x, y, s, 0, Math.PI * 2);
   else if (shape === "cross") {
     ctx.moveTo(x - s, y - s); ctx.lineTo(x + s, y + s);
     ctx.moveTo(x - s, y + s); ctx.lineTo(x + s, y - s);

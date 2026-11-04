@@ -38,7 +38,7 @@ NAMED_COLUMNS = [
     "Cabin[0].doorSwitch0", "Cabin[1].doorSwitch0",
     "Cabin[0].defrostDelayTimer", "Cabin[1].defrostDelayTimer",  # Cabin[0] = 0 ทั้งไฟล์ (รุ่นที่นับที่ Cabin[1])
     "Cabin[0].flap", "Cabin[0].display", "Cabin[1].display", "work.Sabbath", "work.EcoExtra",
-    "errHighTemp",
+    "errHighTemp", "keyLock",
     "Cabin[0].fanCutInTemp", "Cabin[0].fanCutOutTemp", "Cabin[1].fanCutInTemp", "Cabin[1].fanCutOutTemp",
     "Cabin[0].heaterB", "Cabin[0].heaterC", "Cabin[1].heaterB", "Cabin[1].heaterC",
     *EMPTY_COLUMNS,
@@ -228,6 +228,8 @@ def make_row(header, t, s, door_open, fz_err, sec):
     values["IceMachine.firstIce"] = "1" if sec < 600 else "0"            # First ice 10 นาทีแรก
     values["IceMachine.iceOFF"] = "1" if 3600 <= sec % 10800 < 5400 else "0"  # ปิด dial ชั่วคราว
     values["IceMachine.temp.Err"] = "1" if 5000 <= sec % 10800 < 5030 else "0"  # sensor error สั้นๆ
+    # Key lock เปิดช่วงสั้นๆ (ไฟล์ตัวอย่างเป็นเฟิร์มแวร์ที่ชื่อไม่เลื่อน → Dispenser key lock = N/A)
+    values["keyLock"] = "1" if 1800 <= sec % 10800 < 2400 else "0"
     # error อื่นๆ ช่วงสั้นๆ คนละเวลา (ไฟล์ตัวอย่างต้องมีทุกสัญลักษณ์) — เซนเซอร์ที่ error ไม่วาดจุดนั้น
     values["errHighTemp"] = "1" if 9600 <= sec % 10800 < 9660 else "0"
     for column, start in (("Cabin[0].airTemp", 2000), ("Cabin[0].evaTemp", 3000), ("Cabin[1].evaTemp", 7000)):

@@ -83,7 +83,7 @@ URL: https://ahth-graph-generator.github.io
   → **ช่วงขาดแยก 2 แบบ ด้วยตัวนับ `ProTestTimer` (ผู้ใช้กำหนด 2026-11-02)** — worker แทรก 3 แถว ต้นช่วง / กลางช่วง / ท้ายช่วง, `fillGaps()` ใน main.js:
     | | ไฟดับ (`gapRows` 1 = ขอบ, 2 = กลาง) | ข้อมูลหาย เช่น WiFi หลุด (3 = ขอบ, 4 = กลาง) |
     |---|---|---|
-    | ตัดสินจาก | ตัวนับ reset หรือเพิ่มน้อยกว่า `POWER_COUNTER.gapMatch` (90%) ของเวลาที่ผ่านไป | ตัวนับเพิ่มตามเวลาที่ผ่านไป = ตู้ทำงานตลอด · ตัดสินไม่ได้ (ไม่มีตัวนับ / นับถอยหลัง / ไม่เดิน) = แบบนี้เหมือนกัน |
+    | ตัดสินจาก | ตัวนับ reset หรือเพิ่มน้อยกว่า `POWER_COUNTER.gapMatch` (90%) ของเวลาที่ผ่านไป | ตัวนับเพิ่มตามเวลาที่ผ่านไป = ตู้ทำงานตลอด · ตัดสินไม่ได้ (ไม่มีตัวนับ / นับถอยหลัง / ไม่เดิน / **ช่วงสั้นจนตัวนับควรเพิ่มไม่ถึง `POWER_COUNTER.minCounts` (2)** เช่นหาย 1 นาที) = แบบนี้เหมือนกัน |
     | Power | OFF ลากยาว (Y=55) | **ON ลากต่อเนื่อง** (Y=57) |
     | Component / System state / Heater | ตำแหน่ง OFF ที่ขอบช่วง **จุดเดียว** ช่วงกลางโล่ง | **ขาดอย่างเดียว** ไม่ลง OFF (ไม่รู้ว่าตอนนั้นทำงานหรือไม่) |
     | ข้อความกลางช่วงบนกราฟ `\|<-- … -->\|` | **"ไฟดับ" / "Power off"** | **"ไม่ได้รับข้อมูล" / "No data received"** (ไม่ใช้คำว่า WiFi เพราะเว็บรู้แค่ว่าข้อมูลไม่มา) |
@@ -125,7 +125,7 @@ URL: https://ahth-graph-generator.github.io
 | `Cabin[0].evaTemp.InC` | Refrigerator Evap sensor | RGB(0,100,0) | 0 ทั้งไฟล์ (ไม่มีเซนเซอร์) |
 | `Cabin[1].airTemp.InC` | Freezer sensor | RGB(255,0,0) | −28.7 ถึง 16.9 °C |
 | `Cabin[1].evaTemp.InC` | Freezer Evap sensor | RGB(180,0,0) | −32.6 ถึง 17.2 °C |
-| `IceCream.temp.InC` | Ambient Sensor | RGB(102,0,204) | ต้องยืนยัน |
+| `IceCream.temp.InC` | Ambient Sensor | RGB(102,0,204) | ยืนยันแล้ว = `ambientTempSensor` (UDAQ map), `IceCream.temp.Err` = error ของเซนเซอร์นี้ |
 | `IceMachine.temp.InC` | Ice making sensor | RGB(0,0,220) | 0 ทั้งไฟล์ |
 
 - คอลัมน์ `*.Err` คู่กัน (เช่น `Cabin[0].airTemp.Err`) ≠ 0 แปลว่าเซนเซอร์ error → **ไม่วาดจุดนั้น**
@@ -157,7 +157,11 @@ URL: https://ahth-graph-generator.github.io
 - **reset = ค่าน้อยกว่าแถวก่อน** (เช่น `0 10 20 30 40 10` → ไฟดับระหว่าง 40 กับ 10) — ใช้แทนการดูค่า 0 เพราะ sampling ห่าง (เช่น 10 นาที) อาจไม่เห็น 0
   - ค่า 0 (ยังไม่เริ่มนับ) ก็ถือเป็น reset
   - **ยกเว้นนับจนเต็มค่าที่เก็บได้แล้ววนกลับ** (65535 → 0…) = นับเกิน ไม่ใช่ reset: แถวก่อนอยู่ใกล้ค่าเต็มพอจะนับเกินได้ในช่วงเวลานั้น
-    (ค่าเต็ม = ตัวแรกใน `POWER_COUNTER.max` ที่ ≥ ค่าสูงสุดในไฟล์, ความเร็วการนับหาเองจากไฟล์ = median ของค่าที่เปลี่ยนต่อวินาที)
+    (ค่าเต็ม = ตัวแรกใน `POWER_COUNTER.max` ที่ ≥ ค่าสูงสุดในไฟล์)
+  - **`ProTestTimer` นับเป็นนาที** (firmware `workMode.values.prodTest.minTimer` — ตาม UDAQ map) แม้ log บันทึกทุก 1 วินาที
+  - **ความเร็วการนับ (นับขึ้น) = ค่าที่เพิ่มทั้งหมด ÷ เวลาทั้งหมด** (ไม่นับช่วงข้อมูลขาด / แถวที่ลดลง) — `counterProfile()`
+    **ห้ามใช้ median ของ "ค่าที่เพิ่ม ÷ เวลาระหว่างแถว"**: log 1 วินาทีได้ 1/วินาที เร็วเกินจริง 60 เท่า → ช่วงข้อมูลหายถูกตัดสินเป็นไฟดับ (แก้ 2026-11-04)
+    · นับถอยหลังยังใช้ median ของค่าที่ลดต่อวินาที
   - **บางไฟล์นับถอยหลัง** (เช่น log 1 วินาที: 1200 → 0 ลดทีละ 1 ต่อวินาที) → ตัดสินทิศจากทั้งไฟล์; นับถอยหลัง = reset เฉพาะเมื่อค่าลดเร็วกว่าการนับปกติมาก
   - โค้ด: `counterResets()` และ `POWER_COUNTER` ใน `js/logformat.js` (worker ใช้ตัดช่วงไฟดับด้วย)
 - เปิด/ปิดได้ด้วย checkbox เหมือนเซนเซอร์
@@ -203,11 +207,26 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
   - นับตอนปิด: ประตูเปิดค้างอยู่ตอนต้นช่วงแล้วปิดในช่วง = นับ 1 ครั้ง · ช่วงไม่มีข้อมูลข้าม (เทียบกับค่าล่าสุดก่อนหน้า) — `doorOpenCount()` ใน main.js
   - สวิตช์ประตูเป็นรายการ `kind: "hidden"` ใน `STATUS_ITEMS` (อ่านแต่ไม่แสดงเอง), ชื่อคอลัมน์สำรองใส่ `aliases`
 
+- Shabbat mode ใช้ค่าจาก `work.Sabbath` (ที่ทำงานจริง ไม่ใช่ `user.Sabbath`) — ผู้ใช้ยืนยัน 2026-11-04 · Key lock / Dispenser key lock ผู้ใช้เพิ่ม 2026-11-04 (การ์ด Monitoring แสดงเองเพราะอยู่กลุ่ม CONTROL PANEL)
+- **ไม่ทำ Quick ice** — บิต 30.1 (คอลัมน์ `IceMachine.rotateTo`) ผู้ใช้ตรวจแล้วเป็นคนละตัว (2026-11-04)
+- ตำแหน่ง Y ของ marker บนสุด: 59 Software/Work mode · 55/57 Power · 53 Error · **51 Key lock** · 49 ECO / Ice making · 47 First ice · **45 Shabbat** — ห้ามวางทับกัน
+
+**High temp error — ชื่อคอลัมน์ไบต์ 73 เลื่อนในบางเฟิร์มแวร์ (ผู้ใช้เห็นชอบ 2026-11-04)** — `highTempShifted()` / `HIGH_TEMP_LAYOUT` ใน logformat.js (หน้ากราฟ + การ์ด Monitoring ใช้ตัวเดียวกัน)
+- เฟิร์มแวร์บางรุ่น (Mass V01R11 ตาม UDAQ map, เครื่อง alps 6253100000-V54R05, **ESP32 Q029 6133103107-V00R20** — ผู้ใช้กดล็อกดิสเพนเซอร์จริง ตรวจแล้วขึ้นเป็น Dispenser key lock) มีบิต `keyLockDspr` ที่ 73.1 แต่ decoder / โปรแกรม PC ไม่มี → ชื่อเลื่อน:
+  คอลัมน์ `errHighTemp` = ล็อกปุ่มดิสเพนเซอร์, **`doorsClosed` = errHighTemp ตัวจริง**, `doorsClosedState` = doorsClosed · บางรุ่นไม่เลื่อน (bona_h10, wlan_d006, Q003)
+- ตัดสินทั้งไฟล์: 1) **ประตู (หลัก)** แถวที่สวิตช์ประตูทั้ง 2 ปิด — `doorsClosed` เป็น 1 ≥ 80% = ไม่เลื่อน, `doorsClosedState` เป็น 1 (และ doorsClosed ไม่ใช่) = เลื่อน
+  2) **ตัวจับเวลา (สำรอง)** `errHighTemp` เป็น 1 ขณะ `Cabin[1].highTempChckTimer` (= `HighTemErr.activationTimer` หน่วยนาที, error ที่ค่าตั้ง ~1500) < 1000 ส่วนใหญ่ = เลื่อน, ≥ 1000 = ไม่เลื่อน
+  3) ตัดสินไม่ได้ = ไม่เลื่อน · `algorithmActivationTime` ไม่อยู่ใน UDAQ map (เฟิร์มแวร์ไม่ส่งออก) จึงใช้ไม่ได้
+- คอลัมน์ Real data ยังเป็นชื่อตามไฟล์ (ไม่สลับ)
+- **แถบสถานะประตู (v2) ที่จะใช้ `doorsClosed` ต้องตรวจการเลื่อนนี้ก่อน**
+
 ค่าตั้ง (Refrigerator set / Freezer set) ในไฟล์เป็นเลข 8 บิตไม่มีเครื่องหมาย → **แปลงเป็นมีเครื่องหมาย**:
 128–255 ลบ 256 (เช่น `234` → **−22**), 0–127 คงเดิม (เช่น `5` → 5) — ใส่ `signed8: true` ใน `STATUS_ITEMS`
-| Shabbat mode | `work.Sabbath` | CONTROL PANEL | วงกลมโปร่งเล็ก Y=49 (เหมือน Ice making mode) สี RGB(255,128,0) เมื่อ ≠ 0 | ON / OFF | ค่าดิบ |
+| Shabbat mode | `work.Sabbath` | CONTROL PANEL | **สามเหลี่ยมโปร่ง Y=45 (ใต้ First ice)** สี RGB(255,128,0) เมื่อ ≠ 0 | ON / OFF | ค่าดิบ |
 | ECO mode | `work.EcoExtra` | CONTROL PANEL | วงกลมโปร่งเล็ก Y=49 (เหมือน Ice making mode) สี RGB(0,102,102) เมื่อ ≠ 0 | ON / OFF | ค่าดิบ |
-| High temp error | `errHighTemp` | ERROR | กากบาทเล็ก Y=53 (เหมือน Ice making sensor error) สี RGB(127,0,255) เมื่อ ≠ 0 | ERROR / "–" | ค่าดิบ |
+| Key lock | `keyLock` (บิต 73.0) | CONTROL PANEL | **สามเหลี่ยมโปร่ง Y=51** สี RGB(128,128,128) เมื่อ ≠ 0 | ON / OFF (0 ปิด, 1 เปิด) | ค่าดิบ |
+| Dispenser key lock | บิต 73.1 `keyLockDspr` = คอลัมน์ชื่อ `errHighTemp` **เฉพาะเฟิร์มแวร์ที่ชื่อเลื่อน** (ไม่เลื่อน = ไม่มีบิตนี้ → N/A) | CONTROL PANEL | **จุดเล็ก Y=51** สีเดียวกับ Key lock — เกิดพร้อมกัน = สามเหลี่ยมมีจุดตรงกลาง | ON / OFF | ค่าดิบ |
+| High temp error | `errHighTemp` **หรือ `doorsClosed`** ตามเฟิร์มแวร์ (ดูด้านล่าง) | ERROR | กากบาทเล็ก Y=53 (เหมือน Ice making sensor error) สี RGB(127,0,255) เมื่อ ≠ 0 | ERROR / "–" | ค่าดิบ |
 | Refrigerator sensor error | `Cabin[0].airTemp.Err` | ERROR | กากบาทเล็ก Y=53 **สีเดียวกับ Refrigerator sensor** | ERROR / "–" | ค่าดิบ |
 | Freezer sensor error | `Cabin[1].airTemp.Err` | ERROR | กากบาทเล็ก Y=53 **สีเดียวกับ Freezer sensor** | ERROR / "–" | ค่าดิบ |
 | Refrigerator Evap sensor error | `Cabin[0].evaTemp.Err` | ERROR | กากบาทเล็ก Y=53 **สีเดียวกับ Refrigerator Evap sensor** | ERROR / "–" | ค่าดิบ |
@@ -433,7 +452,7 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
 
 ### หัวเว็บ / ท้ายเว็บ
 - หัวเว็บ: `AHTH Graph Generator` ต่อท้ายด้วย **`Release version X.Y`** — เลขเวอร์ชันอยู่ที่ `APP_VERSION` ใน `js/site.js` ที่เดียว (ทุกหน้าใช้ร่วมกัน)
-  (ตอนนี้ **2.7**) ต้องเปลี่ยนทุกครั้งที่ release
+  (ตอนนี้ **2.8**) ต้องเปลี่ยนทุกครั้งที่ release
 - มุมขวาบน: ปุ่ม **สลับโหมดสว่าง / มืด** (☀️ / 🌙 แสดงโหมดที่จะสลับไป) อยู่ข้างปุ่ม TH/EN — โค้ดใน `js/theme.js`
   - ครั้งแรกใช้ตามเครื่องผู้ใช้, กดแล้วจำไว้ใน localStorage `theme`, ตั้งค่าตั้งแต่ `<head>` กันหน้าจอกระพริบ
   - สีโหมดมืดอยู่ใต้ `:root[data-theme="dark"]` ใน style.css; สลับโหมดแล้วสร้างกราฟใหม่ (คงช่วง zoom)

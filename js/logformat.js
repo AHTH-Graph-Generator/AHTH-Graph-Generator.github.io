@@ -122,7 +122,8 @@ function sensorError(sensorKey, name) {
 // ยกเว้นนับจนเต็มค่าที่เก็บได้แล้ววนกลับ (นับเกิน ไม่ใช่ reset) — ค่าเต็มเลือกตัวแรกที่ ≥ ค่าสูงสุดในไฟล์
 // tolerance = ยอมให้ค่าเปลี่ยนได้ rate × ระยะเวลา × slack + 1 (rate = ความเร็วการนับปกติของไฟล์ ต่อวินาที)
 // gapMatch: ช่วงข้อมูลหาย — ตัวนับต้องเพิ่มอย่างน้อยเท่านี้ของเวลาที่ผ่านไป ถึงถือว่าตู้ทำงานต่อเนื่อง (ไฟไม่ได้ดับ)
-export const POWER_COUNTER = { max: [65535, 4294967295], slack: 2, gapMatch: 0.9 };
+// minCounts: ช่วงที่ตัวนับควรเพิ่มไม่ถึงเท่านี้ = สั้นเกินกว่าจะตัดสินว่าไฟดับ → ถือเป็นข้อมูลหาย
+export const POWER_COUNTER = { max: [65535, 4294967295], slack: 2, gapMatch: 0.9, minCounts: 2 };
 
 // ---------- Power: หาแถวที่ตัวนับ reset ----------
 // ใช้ทั้งหน้าเว็บ (เส้น Power) และ worker (ช่วงไฟดับ = ช่วงที่ไม่มีข้อมูล ระหว่างแถวก่อนหน้ากับแถวที่ reset)
@@ -155,38 +156,60 @@ export function counterResets(times, raw) {
   return reset;
 }
 
-// สำรวจตัวนับทั้งไฟล์: ทิศการนับ (1 / -1), ความเร็วการนับปกติ (median ของค่าที่เปลี่ยน / วินาที), ค่าเต็ม
+// สำรวจตัวนับทั้งไฟล์: ทิศการนับ (1 / -1), ความเร็วการนับปกติ (ค่าที่เปลี่ยน / วินาที), ค่าเต็ม
+//   นับขึ้น: ความเร็ว = ค่าที่เพิ่มทั้งหมด ÷ เวลาทั้งหมด (ไม่นับช่วงข้อมูลขาด / แถวที่ reset)
+//     ⚠️ ห้ามใช้ median ของ "ค่าที่เพิ่ม ÷ เวลาระหว่างแถว" — ProTestTimer นับเป็นนาที แต่ log ปกติบันทึกทุก 1 วินาที
+//     แถวที่ค่าเพิ่ม (1) ห่างจากแถวก่อนแค่ 1 วินาที → ได้ 1/วินาที เร็วเกินจริง 60 เท่า → ช่วงข้อมูลหายถูกตัดสินว่าไฟดับ
+//   นับถอยหลัง: median ของค่าที่ลด ÷ เวลา (ไฟล์ที่ลดทีละ 1 ทุกวินาที)
 export function counterProfile(times, raw) {
   const n = raw.length;
-  const upRates = [], downRates = [];
-  let fileMax = 0, prev = NaN, prevT = NaN;
+  const downRates = [], steps = [];
+  let fileMax = 0, prev = NaN, prevT = NaN, ups = 0, downs = 0;
   for (let i = 0; i < n; i++) {
     const v = raw[i];
     if (Number.isNaN(v)) continue;
     if (v > fileMax) fileMax = v;
     const dt = times[i] - prevT;
     if (dt > 0) {
-      if (v > prev) upRates.push((v - prev) / dt);
-      else if (v < prev) downRates.push((prev - v) / dt);
+      steps.push(dt);
+      if (v > prev) ups++;
+      else if (v < prev) { downs++; downRates.push((prev - v) / dt); }
     }
     prev = v; prevT = times[i];
   }
-  const counting = upRates.length >= downRates.length ? 1 : -1;
-  const median = (a) => (a.length ? a.sort((x, y) => x - y)[a.length >> 1] : 0);
-  const rate = median(counting > 0 ? upRates : downRates);
+  const counting = ups >= downs ? 1 : -1;
+  const median = (a) => (a.length ? a.slice().sort((x, y) => x - y)[a.length >> 1] : 0);
   const max = POWER_COUNTER.max.find((m) => m >= fileMax) ?? fileMax;
-  return { counting, rate, max };
+  if (counting < 0) return { counting, rate: median(downRates), max };
+
+  // นับขึ้น: รวมเฉพาะคู่แถวที่ห่างไม่เกิน GAP_MEDIAN_FACTOR × sampling และค่าไม่ลดลง
+  const limit = GAP_MEDIAN_FACTOR * median(steps);
+  let added = 0, elapsed = 0;
+  prev = NaN; prevT = NaN;
+  for (let i = 0; i < n; i++) {
+    const v = raw[i];
+    if (Number.isNaN(v)) continue;
+    const dt = times[i] - prevT;
+    if (dt > 0 && dt <= limit && v >= prev) { added += v - prev; elapsed += dt; }
+    prev = v; prevT = times[i];
+  }
+  return { counting, rate: elapsed > 0 ? added / elapsed : 0, max };
 }
 
 // ตัวนับนับต่อเนื่องข้ามช่วงที่ข้อมูลหายไหม (prev → next ห่าง dt วินาที)
 //   เพิ่มตามเวลาที่ผ่านไป = ตู้ทำงานตลอด (ข้อมูลหายอย่างเดียว เช่น WiFi หลุด) · น้อยกว่านั้นชัดเจน = ไฟดับกลางช่วง
-//   ตัดสินไม่ได้ (ไม่มีค่า / นับถอยหลัง / ตัวนับไม่เดิน) = true — ไม่มีหลักฐานว่าไฟดับ
+//   ตัดสินไม่ได้ = true — ไม่มีหลักฐานว่าไฟดับ:
+//     ไม่มีค่า / นับถอยหลัง / ตัวนับไม่เดิน / ช่วงสั้นจนตัวนับควรเพิ่มไม่ถึง POWER_COUNTER.minCounts
+//     (เช่นตัวนับหน่วยนาที ข้อมูลหาย 1 นาที — อาจเพิ่ม 0 หรือ 1 ก็ได้ ตัดสินไม่ได้)
+//   ไฟดับแล้วเปิดใหม่ในช่วงสั้น ยังจับได้จากค่าที่ลดลง (counterResets)
 export function counterContinued(profile, prev, next, dt) {
   if (Number.isNaN(prev) || Number.isNaN(next)) return true;
   const { counting, rate, max } = profile;
   if (counting < 0 || rate === 0) return true;
+  const expected = rate * dt;
+  if (expected < POWER_COUNTER.minCounts) return true;
   const delta = next >= prev ? next - prev : next + max + 1 - prev; // ค่าน้อยลง = นับเกินแล้ววนกลับ
-  return delta >= rate * dt * POWER_COUNTER.gapMatch;
+  return delta >= expected * POWER_COUNTER.gapMatch;
 }
 
 // สีช่วงขาดบนกราฟ (ข้อความ + แถบพื้นหลังจาง) ผู้ใช้เลือก — ใช้ชุดเดียวทั้ง 2 โหมด, contrast ≥ 3:1 ทั้งพื้นขาวและพื้นมืด
@@ -247,11 +270,21 @@ export const STATUS_ITEMS = [
     th: "Refrigerator set", en: "Refrigerator set", display: "raw", noAvg: true, signed8: true },
   { key: "freezerSet", column: "Cabin[1].display", group: "control", kind: "value",
     th: "Freezer set", en: "Freezer set", display: "raw", noAvg: true, signed8: true },
-  // โหมดที่แผงควบคุม: วงกลมโปร่งที่ Y = 49 (เหมือน Ice making mode) เมื่อ ON (≠ 0), ต่างกันแค่สี
-  { key: "shabbatMode", column: "work.Sabbath", group: "control", kind: "marker", shape: "circle", color: "rgb(255, 128, 0)", y: 49,
+  // โหมดที่แผงควบคุม: ECO = วงกลมโปร่งที่ Y = 49 (เหมือน Ice making mode) เมื่อ ON (≠ 0)
+  // Shabbat = สามเหลี่ยมโปร่งที่ Y = 45 (ใต้ First ice — ผู้ใช้กำหนด 2026-11-04) ค่าจาก work.Sabbath
+  { key: "shabbatMode", column: "work.Sabbath", group: "control", kind: "marker", shape: "triangle", color: "rgb(255, 128, 0)", y: 45,
     th: "Shabbat mode", en: "Shabbat mode", display: "onOff" },
   { key: "ecoMode", column: "work.EcoExtra", group: "control", kind: "marker", shape: "circle", color: "rgb(0, 102, 102)", y: 49,
     th: "ECO mode", en: "ECO mode", display: "onOff" },
+  // ล็อกปุ่ม Y = 51 (เหนือ Ice making mode ไม่ทับกัน): Key lock = สามเหลี่ยมโปร่ง, Dispenser key lock = จุดเล็กตรงกลาง
+  //   เกิดพร้อมกัน = สามเหลี่ยมมีจุดตรงกลาง (ผู้ใช้กำหนด 2026-11-04) · 0 = ปิด, 1 = เปิด
+  // Key lock: บิต 73.0 (keyLock) — ไม่เลื่อนตามเฟิร์มแวร์
+  { key: "keyLock", column: "keyLock", group: "control", kind: "marker", shape: "triangle", color: "rgb(128, 128, 128)", y: 51,
+    th: "Key lock", en: "Key lock", display: "onOff" },
+  // Dispenser key lock: บิต 73.1 (keyLockDspr) มีเฉพาะเฟิร์มแวร์ที่ชื่อเลื่อน (highTempShifted) → อยู่ในคอลัมน์ชื่อ errHighTemp
+  //   เฟิร์มแวร์ที่ไม่เลื่อน = ไม่มีบิตนี้ → N/A
+  { key: "dispenserKeyLock", column: "errHighTemp", dispenserLock: true, group: "control", kind: "marker", shape: "smallDot",
+    color: "rgb(128, 128, 128)", y: 51, th: "Dispenser key lock", en: "Dispenser key lock", display: "onOff" },
   { key: "softwareChange", group: "other", kind: "marker", shape: "dot", color: "#22c55e", y: 59,
     th: "Software change", en: "Software change", display: "software", changes: "softwareChanges" },
   // จุดที่ WorkMode เปลี่ยน: ขีด "-" ที่ Y = 59 (ตำแหน่งเดียวกับ Software change)
@@ -286,8 +319,13 @@ export const STATUS_ITEMS = [
   heater("fdefHeater",     1, "B", "FDEF heater",      "rgb(147, 112, 219)", true),
   heater("gtHeater",       1, "C", "GT heater",        "rgb(60, 179, 113)", true),
   // ---- ERROR: กากบาทเล็กที่ Y = 53 เมื่อ ≠ 0 (เหมือน Ice making sensor error) ----
+  // คอลัมน์จริงขึ้นกับเฟิร์มแวร์ — ตัดสินด้วย highTempShifted() (highTempLayout: true)
   { key: "highTempError", column: "errHighTemp", group: "error", kind: "marker", shape: "cross", color: "rgb(127, 0, 255)", y: 53,
-    th: "High temp error", en: "High temp error", display: "error" },
+    th: "High temp error", en: "High temp error", display: "error", highTempLayout: true },
+  // ใช้ตัดสินว่าชื่อคอลัมน์ไบต์ 73 เลื่อนไหม (ไม่แสดงเอง) — ดู HIGH_TEMP_LAYOUT
+  { key: "doorsClosedBit", column: "doorsClosed", kind: "hidden", optional: true },
+  { key: "doorsClosedStateBit", column: "doorsClosedState", kind: "hidden", optional: true },
+  { key: "highTempTimer", column: "Cabin[1].highTempChckTimer", aliases: ["Cabin[1].values.HighTemErr.activationTimer"], kind: "hidden", optional: true },
   // error ของเซนเซอร์: สีเดียวกับเส้นเซนเซอร์นั้น, ไม่มีเซนเซอร์ในตู้ → ไม่เลือกเป็นค่าเริ่มต้น
   sensorError("fcAir", "Refrigerator sensor error"),
   sensorError("fzAir", "Freezer sensor error"),
@@ -297,6 +335,51 @@ export const STATUS_ITEMS = [
   { key: "iceMakingError", column: "IceMachine.temp.Err", group: "error", kind: "marker", shape: "cross", color: ICE_MAKER_BLUE, y: 53,
     th: "Ice making sensor error", en: "Ice making sensor error", display: "error", requires: "iceMachine" },
 ];
+
+// ---------- High temp error: ชื่อคอลัมน์ไบต์ 73 เลื่อนในบางเฟิร์มแวร์ ----------
+// เฟิร์มแวร์บางรุ่น (เช่น Mass V01R11, alps 6253100000-V54R05) มีบิต keyLockDspr (ล็อกปุ่มดิสเพนเซอร์) ที่บิต 1
+// แต่ decoder / โปรแกรม PC ไม่มีบิตนี้ → ชื่อตั้งแต่บิต 1 เลื่อน 1 ตำแหน่ง:
+//   คอลัมน์ errHighTemp = keyLockDspr, คอลัมน์ doorsClosed = errHighTemp ตัวจริง, คอลัมน์ doorsClosedState = doorsClosed
+// ตัดสินทั้งไฟล์ (ผู้ใช้เห็นชอบ 2026-11-04):
+//   1. ประตู (หลัก): แถวที่สวิตช์ประตูทั้ง 2 ปิด — คอลัมน์ doorsClosed เป็น 1 = ไม่เลื่อน, doorsClosedState เป็น 1 (doorsClosed ไม่ใช่) = เลื่อน
+//   2. ตัวจับเวลา (สำรอง เมื่อข้อ 1 ตัดสินไม่ได้): คอลัมน์ errHighTemp เป็น 1 ขณะ Cabin[1].highTempChckTimer < timerMin
+//      ส่วนใหญ่ = ไม่ใช่ error จริง (keyLockDspr) → เลื่อน · เป็น 1 ขณะตัวจับเวลา ≥ timerMin = ไม่เลื่อน
+//      (error จริงเกิดเมื่อตัวจับเวลาถึงค่าตั้ง ~1500 นาที — ใช้ 1000 เผื่อค่าตั้งถูกปรับลง)
+//   3. ตัดสินไม่ได้ = ไม่เลื่อน (แบบเดิม)
+export const HIGH_TEMP_LAYOUT = { timerMin: 1000, doorShare: 0.8, minRows: 10 };
+
+// cols: { errHighTemp, doorsClosed, doorsClosedState, doorR, doorF, timer } (array / null) → { shifted, by: "doors" | "timer" | "default" }
+export function highTempShifted(cols) {
+  const { errHighTemp, doorsClosed, doorsClosedState, doorR, doorF, timer } = cols;
+  const n = (errHighTemp || doorsClosed || doorsClosedState || []).length;
+  const { timerMin, doorShare, minRows } = HIGH_TEMP_LAYOUT;
+  // 1. ประตู
+  if (doorR && doorsClosed && doorsClosedState) {
+    let shut = 0, a = 0, b = 0;
+    for (let i = 0; i < n; i++) {
+      if (doorR[i] !== 0 || (doorF && doorF[i] !== 0)) continue; // ประตูเปิด / ไม่มีค่า (NaN)
+      if (Number.isNaN(doorsClosed[i]) || Number.isNaN(doorsClosedState[i])) continue;
+      shut++;
+      if (doorsClosed[i] === 1) a++;
+      if (doorsClosedState[i] === 1) b++;
+    }
+    if (shut >= minRows) {
+      const aHigh = a / shut >= doorShare, bHigh = b / shut >= doorShare;
+      if (aHigh && !bHigh) return { shifted: false, by: "doors" };
+      if (bHigh && !aHigh) return { shifted: true, by: "doors" };
+    }
+  }
+  // 2. ตัวจับเวลา
+  if (errHighTemp && timer) {
+    let low = 0, high = 0;
+    for (let i = 0; i < n; i++) {
+      if (errHighTemp[i] !== 1 || Number.isNaN(timer[i])) continue;
+      if (timer[i] < timerMin) low++; else high++;
+    }
+    if (low + high > 0) return { shifted: low > high, by: "timer" };
+  }
+  return { shifted: false, by: "default" };
+}
 
 // Refrigerator Work Mode: คอลัมน์ WorkMode → ชื่อโหมด (ค่าที่ไม่รู้จักแสดงเป็นตัวเลข)
 export const WORK_MODE_COLUMN = "WorkMode";
