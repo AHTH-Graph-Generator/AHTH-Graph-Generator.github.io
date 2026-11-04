@@ -148,8 +148,12 @@
             <div class="range-buttons">
               <button id="range-apply" class="btn" type="button" data-th="แสดงช่วงนี้" data-en="Apply">แสดงช่วงนี้</button>
               <button id="zoom-reset" class="btn secondary" type="button" data-th="ดูทั้งหมด" data-en="Reset zoom">ดูทั้งหมด</button>
+              <!-- หน้ากราฟของ device: แสดงเฉพาะตอนเลือกช่วงย้อนหลังเอง → กลับเป็น N วันล่าสุด (js/live.js) -->
+              <button id="range-reset-days" class="btn secondary" type="button" hidden></button>
             </div>
           </div>
+          <!-- หน้ากราฟของ device: ช่วงที่มีข้อมูล + ข้อความเมื่อเลือกช่วงไม่ได้ (js/live.js) -->
+          <p id="range-available" class="range-available small muted" hidden></p>
           <!-- วิธีใช้: เมาส์ (คอม) / นิ้ว (iPad, มือถือ) — style.css เลือกแสดงตามอุปกรณ์ -->
           <ul class="hint hint-mouse muted">
             <li data-th="ลูกกลิ้งเมาส์ = ซูมเข้า/ออก" data-en="Mouse wheel = zoom in/out">ลูกกลิ้งเมาส์ = ซูมเข้า/ออก</li>

@@ -63,6 +63,7 @@ ESP32 Data Logger ──(ทุก 10 นาที)──▶ Google Drive (โ�
 > "Anyone" = Worker เรียกได้โดยไม่ต้อง login Google — ความปลอดภัยอยู่ที่รหัสลับ คนไม่มีรหัสได้แค่ `unauthorized`
 6. เลือกฟังก์ชัน **`testFiles`** → **Run** → อนุญาตสิทธิ์ (ขอสิทธิ์ "เชื่อมต่อบริการภายนอก" เพิ่ม — ใช้อ่านหลายไฟล์พร้อมกัน)
    → Execution log ต้องขึ้น `อ่าน 18/18 ไฟล์ · error 0 · วิธี fetchAll` (ถ้าขึ้น `DriveApp (…)` = ยังอ่านได้แต่ช้ากว่า)
+7. (ไม่บังคับ) เลือก **`testRange`** → **Run** → ต้องขึ้น `<เครื่อง> <วันที่แรก> → <+89 วัน> : N ไฟล์` (ทดสอบการเลือกช่วงย้อนหลัง)
 
 > **แก้โค้ดทุกครั้ง** ต้อง Deploy → **Manage deployments** → ✏️ → Version: **New version** → Deploy (URL เดิมไม่เปลี่ยน)
 
@@ -143,7 +144,7 @@ $h = @{ Authorization = "Bearer $($r.token)" }
 | `FOLDER_ID not set` | ไม่ได้ใส่ Script Property | ใส่ `FOLDER_ID` |
 | แก้ Code.gs แล้วผลไม่เปลี่ยน | URL ยังชี้เวอร์ชันเก่า | Manage deployments → ✏️ → New version |
 | `server error` ทุกคำขอ | ยังไม่ได้ผูก KV `USERS` หรือไม่ได้ตั้ง `SESSION_SECRET` | ทำขั้นที่ 2 ข้อ 3–4 |
-| ไม่มี device ในรายการ | ไม่มีไฟล์ใน 62 วัน หรือชื่อไฟล์ไม่ตรง `uart_log_DataLogger_<device>_<YYYY-MM-DD>.csv` | ตรวจชื่อไฟล์ใน Drive |
+| ไม่มี device ในรายการ | ชื่อไฟล์ไม่ตรง `uart_log_DataLogger_<device>_<YYYY-MM-DD>.csv` | ตรวจชื่อไฟล์ใน Drive |
 | เว็บขึ้น CORS error | โดเมนเว็บไม่อยู่ใน `ALLOWED_ORIGINS` ใน worker.js | เพิ่มโดเมน แล้ว Deploy Worker ใหม่ |
 | บรรทัด "เวลาที่ใช้" (ใต้ ตรวจสอบล่าสุด) พื้นเหลือง | "ช้าที่ Google Apps Script" = Google เปิดสคริปต์ช้า / "ช้าที่เครือข่ายของเครื่องนี้" = เน็ตของเครื่องคนดู | Google: ดู Apps Script → Executions · เครือข่าย: ลองเน็ตอื่น / ถามฝ่าย IT ว่าปิดกั้น `workers.dev` ไหม |
 | error มี "สาเหตุ: Google จำกัดจำนวนการเรียก" (HTTP 429 / too many) | เรียก Apps Script เกินโควตา / พร้อมกันมากเกินไป | รอสักครู่ (ระบบลองใหม่เอง) · ตรวจว่าใช้ Code.gs + worker.js ล่าสุด (โหลดหลายไฟล์ในการเรียกครั้งเดียว) |

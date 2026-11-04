@@ -16,7 +16,8 @@
 //   POST /auth/verify {email, code}                 → {token, user}  (token อายุ SESSION_DAYS วัน)
 //   GET  /auth/me                                   → {user}  status: new | pending | approved | rejected | revoked
 //   POST /auth/apply {name, department, reason}     ขอสิทธิ์ → pending + อีเมลแจ้งแอดมิน
-//   GET  /index                                     รายการ device (approved เท่านั้น)
+//   GET  /index                                     รายการ device (approved เท่านั้น) + firstDate / lastDate ของแต่ละเครื่อง
+//   GET  /range?device=&from=YYYY-MM-DD&to=YYYY-MM-DD  ไฟล์ของเครื่องนั้นในช่วงวันที่ (ไม่เกิน RANGE_MAX_DAYS วัน) — เลือกช่วงย้อนหลัง
 //   GET  /file?id=<file id>&v=<modified>            CSV ดิบ (approved เท่านั้น)
 //   GET  /files?f=<id>@<modified>,…                 หลายไฟล์ในคำขอเดียว → {files:{id:ข้อความ}, errors:{id:สาเหตุ}}
 //                                                   ไฟล์ที่ยังไม่มีใน cache รวมไปขอ Apps Script ครั้งเดียว
@@ -34,6 +35,10 @@ const APPS_SCRIPT_TIMEOUT_MS = 25000; // Apps Script ตอบช้าเกิ
 const INDEX_KV_KEY = "cache:index";    // รายการเครื่องล่าสุดใน KV (ไม่ใช่ข้อมูล log — มีแค่ชื่อ device / ชื่อไฟล์ / เวลา)
 const INDEX_KV_SECONDS = 10 * 60;      // เขียน KV ไม่เกินทุก 10 นาทีต่อ instance (KV ฟรีเขียนได้ 1,000 ครั้ง/วัน)
 const FILES_MAX = 40;                  // /files ขอได้ไม่เกินกี่ไฟล์ต่อครั้ง (เท่ากับ FILES_MAX ใน Code.gs)
+const RANGE_MAX_DAYS = 92;             // /range เลือกช่วงได้ไม่เกินกี่วัน (เท่ากับ RANGE_MAX_DAYS ใน Code.gs)
+const RANGE_CACHE_SECONDS = 600;       // จำผล /range 10 นาที (ไฟล์ย้อนหลังไม่เปลี่ยน — ช่วงที่รวมวันนี้เว็บใช้รายการเครื่องแทน)
+const DEVICE_RE = /^[A-Za-z0-9_.-]{1,64}$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const OTP_TTL_SECONDS = 600;        // รหัส OTP ใช้ได้ 10 นาที
 const OTP_MAX_TRIES = 5;            // ใส่รหัสผิดได้ 5 ครั้งต่อรหัส
 const OTP_PER_HOUR = 5;             // ขอรหัสได้ 5 ครั้ง/ชั่วโมง/อีเมล
@@ -110,6 +115,7 @@ export default {
         case "GET /index": return await index(request, env, ctx, cors);
         case "GET /file": return await file(request, env, ctx, cors, url);
         case "GET /files": return await files(request, env, cors, url);
+        case "GET /range": return await range(request, env, cors, url);
         case "GET /admin/users": return await adminList(request, env, cors);
         case "POST /admin/users": return await adminAction(request, env, cors);
         default: return json({ error: "not found" }, 404, cors);
@@ -478,6 +484,33 @@ async function files(request, env, cors, url) {
       ...cors, "Content-Type": "application/json; charset=utf-8", "Server-Timing": tm.header(),
       "Cache-Control": allOk ? "private, max-age=31536000, immutable" : "no-store",
     },
+  });
+}
+
+// ไฟล์ของเครื่องเดียวในช่วงวันที่ (เลือกช่วงย้อนหลังเกินรายการเครื่อง) — จำ RANGE_CACHE_SECONDS, คำขอซ้ำพร้อมกันเรียก Apps Script ครั้งเดียว
+async function range(request, env, cors, url) {
+  const tm = timer();
+  await tm.step("auth", () => requireApproved(request, env));
+  const device = url.searchParams.get("device") || "";
+  const from = url.searchParams.get("from") || "";
+  const to = url.searchParams.get("to") || "";
+  const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000 + 1;
+  if (!DEVICE_RE.test(device) || !DATE_RE.test(from) || !DATE_RE.test(to) || !(days >= 1 && days <= RANGE_MAX_DAYS)) {
+    throw new HttpError(400, "bad range");
+  }
+  const key = `range:${device}|${from}|${to}`;
+  const hit = memCache.get(key);
+  let body;
+  if (hit && Date.now() - hit.time < RANGE_CACHE_SECONDS * 1000) {
+    body = hit.value;
+    tm.add("cache", 0, "hit");
+  } else {
+    body = await tm.step("as", () => once(key, () => appsScript(env,
+      `action=range&device=${encodeURIComponent(device)}&from=${from}&to=${to}`)));
+    memCache.set(key, { time: Date.now(), value: body });
+  }
+  return new Response(body, {
+    headers: { ...cors, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "Server-Timing": tm.header() },
   });
 }
 

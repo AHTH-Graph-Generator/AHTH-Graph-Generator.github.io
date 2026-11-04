@@ -175,6 +175,29 @@ const hideProgress = () => { el.progress.hidden = true; };
 
 // ---------- โหลดไฟล์ ----------
 // options.keepView (หน้า device อัปเดตข้อมูลใหม่): คงช่วงที่ซูม / ช่วงที่เลือก / โน้ต / เส้นที่เปิด-ปิด และไม่แสดง progress
+// หน้ากราฟของ device (live.js): ช่วงที่กด "แสดงช่วงนี้" อยู่นอกข้อมูลที่โหลดไว้ → ให้ live.js โหลดไฟล์ของช่วงนั้นแทน
+//   hook(min, max) คืน true = จัดการเอง (ไม่ซูมในข้อมูลเดิม)
+let rangeHook = null;
+export const setRangeHook = (fn) => { rangeHook = fn; };
+// วันที่ที่เลือกได้ในช่อง เริ่ม / สิ้นสุด (เวลาในไฟล์) — ปฏิทินทำวันนอกช่วงให้จาง · null = ไม่จำกัด
+let rangeLimits = null;
+export function setRangeLimits(min, max) {
+  rangeLimits = min == null ? null : [min, max];
+  applyRangeLimits();
+}
+function applyRangeLimits() {
+  [el.rangeStart, el.rangeEnd].forEach((input) => {
+    if (rangeLimits) {
+      input.min = toInputValue(rangeLimits[0]); // แปลงตาม time zone ที่เลือก
+      input.max = toInputValue(rangeLimits[1]);
+    } else {
+      input.removeAttribute("min");
+      input.removeAttribute("max");
+    }
+  });
+}
+
+// options.range = [min, max] ช่วงที่แสดงหลังโหลดเสร็จ (เลือกช่วงย้อนหลังในหน้า device)
 export function loadFile(file, fileName = file.name, options = {}) {
   const keep = options.keepView && loaded && chart ? captureView() : null;
   loadToken++;
@@ -194,7 +217,7 @@ export function loadFile(file, fileName = file.name, options = {}) {
   }
   worker.onmessage = ({ data }) => {
     if (data.type === "progress") { if (!keep) showProgress(data.total ? (data.loaded / data.total) * 100 : 0); }
-    else if (data.type === "done") onParsed(fileName, data.result, notes, keep);
+    else if (data.type === "done") onParsed(fileName, data.result, notes, keep, options.range);
     else if (data.type === "error") onParseError(data.code, data.params);
   };
   worker.onerror = (e) => onParseError("readFailed", { message: e.message || "worker error" });
@@ -247,7 +270,7 @@ function restoreView(keep) {
   if (keep.selection) chart.setSelection(keep.selection);
 }
 
-function onParsed(fileName, result, notes, keep = null) {
+function onParsed(fileName, result, notes, keep = null, range = null) {
   finishWorker();
   if (!keep) showProgress(100, MSG.preparing);
 
@@ -283,6 +306,7 @@ function onParsed(fileName, result, notes, keep = null) {
     if (token !== loadToken) return;
     buildChart();
     if (keep) restoreView(keep);
+    else if (range) chart.setRange(range[0], range[1]);
     hideProgress();
   })();
 }
@@ -1175,6 +1199,7 @@ function updateRange(min, max) {
   if (!loaded || min == null || max == null) return;
   el.rangeStart.value = toInputValue(Math.floor(min));
   el.rangeEnd.value = toInputValue(Math.ceil(max));
+  applyRangeLimits(); // เปลี่ยน time zone → ขอบของปฏิทินเปลี่ยนตาม
   updateStats();
 }
 
@@ -1305,6 +1330,7 @@ function applyRangeInputs() {
     return;
   }
   if (lastMessage && lastMessage.items[0].msg === MSG.badRange) showMessage("warn", []);
+  if (rangeHook && rangeHook(min, max)) return;
   chart.setRange(min, max);
 }
 

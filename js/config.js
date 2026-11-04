@@ -9,6 +9,7 @@ export const WORKER_URL = "https://ahth-monitor.apiwatkamsiri.workers.dev";
 
 export const REFRESH_MS = 60 * 1000;        // ถามข้อมูลใหม่ทุก 1 นาที
 export const OFFLINE_MINUTES = 25;          // ESP32 บันทึกทุก 10 นาที — ไม่มีข้อมูลใหม่เกิน 25 นาที (เกิน 2 รอบ) = Offline
-export const DAY_OPTIONS = [1, 3, 7, 14, 30, 60]; // ช่วงที่เลือกแสดงได้ (วัน)
+export const DAY_OPTIONS = [1, 3, 7, 14, 30, 60, 90]; // ช่วงที่เลือกแสดงได้ (วัน)
 export const DEFAULT_DAYS = 3;
+export const INACTIVE_DAYS = 90;            // ไม่มีข้อมูลใหม่เกินกี่วัน = "ไม่ได้ใช้งาน" (แยกจาก Offline, ไม่แสดงในทั้งหมด) — เท่ากับช่วงสูงสุดใน DAY_OPTIONS
 export const PREVIEW_HOURS = 24;            // กราฟย่อบนการ์ดหน้า Monitoring: ย้อนหลังกี่ชั่วโมงจากข้อมูลล่าสุด

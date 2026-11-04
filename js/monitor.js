@@ -6,7 +6,7 @@
 //     - ซอฟต์แวร์ + เวลาของข้อมูล, กราฟอุณหภูมิย่อ PREVIEW_HOURS ชั่วโมงล่าสุด (เฉพาะเซนเซอร์อุณหภูมิ)
 //       ชี้เมาส์ / แตะบนกราฟ → ค่าในการ์ดเปลี่ยนเป็นค่า ณ จุดนั้น (ไม่มีเลือกช่วง / ซูม) ออกจากกราฟ = กลับเป็นค่าล่าสุด
 //     - อุณหภูมิ 5 เซนเซอร์ (ชื่อย่อ) + แผงควบคุม (กลุ่ม CONTROL PANEL) แบ่ง 2 คอลัมน์
-//   ค้นหาชื่อ + กรอง ทั้งหมด / Online / Offline · ถามข้อมูลใหม่ทุก REFRESH_MS
+//   ค้นหาชื่อ + กรอง ทั้งหมด / Online / Offline / ไม่ได้ใช้งาน (ไม่นับในทั้งหมด) · ถามข้อมูลใหม่ทุก REFRESH_MS
 //   กดการ์ด → analyze.html?device=<ชื่อ> (หน้ากราฟเต็ม)
 // ============================================================
 
@@ -15,7 +15,7 @@ import { showAuthGate, renderUserBar } from "./login-ui.js";
 import { ApiError } from "./auth.js";
 import { t, onLanguageChange, getLang } from "./i18n.js";
 import { onThemeChange } from "./theme.js";
-import { REFRESH_MS, PREVIEW_HOURS } from "./config.js";
+import { REFRESH_MS, PREVIEW_HOURS, INACTIVE_DAYS } from "./config.js";
 import {
   getIndex, getFileText, prefetchFiles, describeTiming, explainError, filesInRange, deviceStatus, ageMinutes, isDemo, formatAgo, formatIso, mapLimit, onResume,
 } from "./monitor-api.js";
@@ -30,11 +30,14 @@ const uPlot = window.uPlot;
 const MSG = {
   search:    { th: "ค้นหาชื่อ Data Logger", en: "Search Data Logger name" },
   all:       { th: "ทั้งหมด {n}", en: "All {n}" },
-  online:    { th: "Online {n}", en: "Online {n}" },
-  offline:   { th: "Offline {n}", en: "Offline {n}" },
+  online:    { th: "ออนไลน์ {n}", en: "Online {n}" }, // ปุ่มกรอง: TH ใช้คำทับศัพท์ (ผู้ใช้กำหนด)
+  offline:   { th: "ออฟไลน์ {n}", en: "Offline {n}" },
+  inactive:  { th: "ไม่ได้ใช้งาน {n}", en: "Inactive {n}" },
   status_online:  { th: "Online", en: "Online" },
   status_nodata:  { th: "Online · ไม่มีข้อมูลจากตู้", en: "Online · no refrigerator data" },
   status_offline: { th: "Offline", en: "Offline" },
+  status_inactive:{ th: "ไม่ได้ใช้งาน", en: "Inactive" },
+  inactiveNote:   { th: "ไม่ได้ใช้งานเกิน {n} วัน", en: "Not in use for more than {n} days" },
   nodataHint:{ th: "Data Logger ยังส่งไฟล์อยู่ แต่ข้อมูลจากตู้ไม่เปลี่ยนตั้งแต่ {time} — ตรวจสอบการเชื่อมต่อกับตู้",
                en: "The Data Logger is still uploading, but refrigerator data has not changed since {time}. Check the connection to the refrigerator." },
   updated:   { th: "ปรับปรุงล่าสุด", en: "Last update" },
@@ -167,7 +170,7 @@ function withCause(text, code) {
 
 function deviceList() {
   if (!state.index) return [];
-  const order = { online: 0, nodata: 1, offline: 2 };
+  const order = { online: 0, nodata: 1, offline: 2, inactive: 3 };
   return Object.entries(state.index.devices)
     .map(([name, dev]) => {
       const data = state.data.get(name);
@@ -191,9 +194,11 @@ function render() {
   $("mon-search").placeholder = t(MSG.search);
 
   const all = deviceList();
-  const isUp = (d) => d.status !== "offline"; // "ไม่มีข้อมูลจากตู้" นับเป็น Online (ESP32 ยังต่อเน็ตได้)
-  const counts = { all: all.length, online: all.filter(isUp).length };
-  counts.offline = counts.all - counts.online;
+  // ทั้งหมด = Online + Offline · "ไม่มีข้อมูลจากตู้" นับเป็น Online (ESP32 ยังต่อเน็ตได้)
+  // ไม่ได้ใช้งาน (เกิน INACTIVE_DAYS วัน) แยกปุ่ม ไม่นับในทั้งหมด
+  const groupOf = (d) => (d.status === "inactive" ? "inactive" : d.status === "offline" ? "offline" : "online");
+  const counts = { all: 0, online: 0, offline: 0, inactive: 0 };
+  all.forEach((d) => { counts[groupOf(d)]++; if (groupOf(d) !== "inactive") counts.all++; });
   document.querySelectorAll(".seg [data-filter]").forEach((b) => {
     b.textContent = t(MSG[b.dataset.filter], { n: counts[b.dataset.filter] });
     b.setAttribute("aria-pressed", String(b.dataset.filter === state.filter));
@@ -202,7 +207,7 @@ function render() {
   plots.forEach((p) => p.destroy());
   plots.clear();
   const query = $("mon-search").value.trim().toLowerCase();
-  const shown = all.filter((d) => (state.filter === "all" || (state.filter === "online") === isUp(d))
+  const shown = all.filter((d) => (state.filter === "all" ? groupOf(d) !== "inactive" : groupOf(d) === state.filter)
     && (!query || d.name.toLowerCase().includes(query)));
   const grid = $("mon-devices");
   if (!state.index) { grid.innerHTML = `<p class="muted">${t(MSG.loading)}</p>`; return; }
@@ -231,7 +236,7 @@ function deviceCard({ name, dev, data, status }) {
 
   if (!data) {
     a.append(el("p", "muted small", t(state.loaded.has(name) ? MSG.noData : MSG.loadingData)));
-    appendFooter(a, dev, []);
+    appendFooter(a, dev, [], status);
     return { node: a };
   }
 
@@ -314,15 +319,17 @@ function deviceCard({ name, dev, data, status }) {
   if (alerts.length) notes.push(el("div", "device-alert", `⚠ ${alerts.join(" · ")}`));
   if (status === "nodata") notes.push(el("p", "device-note", t(MSG.nodataHint, { time: formatDateTime(data.last.time) })));
 
-  appendFooter(a, dev, notes);
+  appendFooter(a, dev, notes, status);
   return { node: a, drawPlot: () => drawPreview(name, data, plotBox, fill) };
 }
 
 // ท้ายการ์ด (ชิดล่างเสมอ — การ์ดในแถวเดียวกันสูงเท่ากัน): ข้อความแจ้งเตือน, ปรับปรุงล่าสุด, ดูกราฟเต็ม
-function appendFooter(card, dev, notes) {
+function appendFooter(card, dev, notes, status) {
   const foot = el("div", "device-foot");
   const meta = el("dl", "device-meta");
-  meta.append(el("dt", "", t(MSG.updated)), el("dd", "", `${formatAgo(ageMinutes(dev.lastModified))} · ${formatIso(dev.lastModified)}`));
+  const updated = el("dd", "", `${formatAgo(ageMinutes(dev.lastModified))} · ${formatIso(dev.lastModified)}`);
+  if (status === "inactive") updated.append(el("span", "inactive-note", ` · ${t(MSG.inactiveNote, { n: INACTIVE_DAYS })}`));
+  meta.append(el("dt", "", t(MSG.updated)), updated);
   foot.append(...notes, meta, el("span", "device-go", t(MSG.open)));
   card.append(foot);
 }

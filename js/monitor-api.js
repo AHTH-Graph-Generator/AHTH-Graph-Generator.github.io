@@ -9,7 +9,7 @@
 // ไฟล์ที่ไม่ถูกแก้ไขแล้ว (modified เดิม) จำไว้ในหน่วยความจำ ไม่โหลดซ้ำ
 // ============================================================
 
-import { WORKER_URL, OFFLINE_MINUTES } from "./config.js";
+import { WORKER_URL, OFFLINE_MINUTES, INACTIVE_DAYS } from "./config.js";
 import { api, takeCalls, ApiError } from "./auth.js";
 import { t } from "./i18n.js";
 import { formatDateTime, zoneOffset, FILE_TIME_ZONE, parseDateParts, partsToEpoch } from "./logformat.js";
@@ -24,17 +24,17 @@ const DEMO_FILES = ["2026-07-22", "2026-07-23"].map((date) => ({
 const DEMO_NOW = Date.UTC(2026, 6, 23, 16, 54, 6);
 export const nowMs = () => (isDemo() ? DEMO_NOW : Date.now());
 
-// DEMO01 = Online, DEMO02 = Offline (ไฟล์ไม่ถูกปรับปรุง 2 วัน),
+// DEMO01 = Online, DEMO02 = Offline (ไฟล์ไม่ถูกปรับปรุง 2 วัน), DEMO04 = ไม่ได้ใช้งาน (ไม่มีข้อมูลใหม่ 120 วัน),
 // DEMO03 = Online แต่ไม่มีข้อมูลจากตู้ (ไฟล์ยังถูกปรับปรุง แต่ข้อมูลล่าสุดค้างที่เมื่อวาน — มีแค่ไฟล์วันแรก)
 function demoIndex() {
   const now = nowMs();
   const device = (minutesAgo, files = DEMO_FILES) => {
     const lastModified = new Date(now - minutesAgo * 60000).toISOString();
-    return { lastModified, files: files.map((f) => ({ ...f, modified: lastModified })) };
+    return { lastModified, firstDate: DEMO_FILES[0].date, lastDate: files[files.length - 1].date, files: files.map((f) => ({ ...f, modified: lastModified })) };
   };
   return {
     updated: new Date(now).toISOString(), demo: true,
-    devices: { DEMO01: device(4), DEMO02: device(2 * 1440 + 180), DEMO03: device(3, DEMO_FILES.slice(0, 1)) },
+    devices: { DEMO01: device(4), DEMO02: device(2 * 1440 + 180), DEMO03: device(3, DEMO_FILES.slice(0, 1)), DEMO04: device(120 * 1440, DEMO_FILES.slice(-1)) },
   };
 }
 
@@ -100,6 +100,33 @@ export async function getFileText(file) {
 }
 
 // ไฟล์ของช่วง N วันล่าสุด (นับจากวันที่ของไฟล์ล่าสุดของ device นั้น — device ที่ offline ก็ยังดูข้อมูลล่าสุดได้)
+// วันที่ของไฟล์แรก / ไฟล์ล่าสุดของเครื่องใน Drive — Apps Script รุ่นเก่ายังไม่ส่ง → ใช้ไฟล์ในรายการเครื่องแทน
+export function availableDates(device) {
+  const dates = device.files.map((f) => f.date).sort();
+  return { first: device.firstDate || dates[0] || null, last: device.lastDate || dates[dates.length - 1] || null };
+}
+
+// ไฟล์ของเครื่องในช่วงวันที่ from–to (YYYY-MM-DD รวมขอบ) — ช่วงที่อยู่ในรายการเครื่องครบแล้วไม่ต้องถาม Worker
+//   ช่วงเก่ากว่ารายการ → GET /range (Worker / Apps Script ค้นไฟล์ของเครื่องนั้น) แล้วรวมกับไฟล์ในรายการ (ได้เวลาแก้ไขล่าสุด)
+const rangeCache = new Map(); // "device|from|to" → files
+export async function filesBetween(name, device, from, to) {
+  const listed = device.files.filter((f) => f.date >= from && f.date <= to);
+  const listedFrom = device.files.length ? device.files.map((f) => f.date).sort()[0] : null;
+  const firstKnown = availableDates(device).first;
+  // รายการเครื่องมีไฟล์ตั้งแต่ from แล้ว (หรือ from อยู่ก่อนไฟล์แรกที่มี และรายการเริ่มที่ไฟล์แรก) → ใช้รายการเลย
+  if (listedFrom && (from >= listedFrom || listedFrom <= firstKnown)) return listed;
+  const key = `${name}|${from}|${to}`;
+  if (!rangeCache.has(key)) {
+    let files;
+    if (isDemo()) files = DEMO_FILES.filter((f) => f.date >= from && f.date <= to).map((f) => ({ ...f, modified: device.lastModified }));
+    else files = (await api(`/range?device=${encodeURIComponent(name)}&from=${from}&to=${to}`)).files || [];
+    rangeCache.set(key, files);
+  }
+  const byId = new Map(rangeCache.get(key).map((f) => [f.id, f]));
+  listed.forEach((f) => byId.set(f.id, f)); // ไฟล์ที่อยู่ในรายการเครื่องใช้เวลาแก้ไขล่าสุด
+  return [...byId.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export function filesInRange(device, days) {
   const files = [...device.files].sort((a, b) => a.date.localeCompare(b.date));
   if (!files.length) return [];
@@ -110,6 +137,9 @@ export function filesInRange(device, days) {
 
 // นาทีตั้งแต่ข้อมูลอัปเดตล่าสุด (null ถ้าไม่รู้)
 export const ageMinutes = (iso) => (iso ? (nowMs() - Date.parse(iso)) / 60000 : null);
+// ไม่ได้ใช้งาน = ไม่มีข้อมูลใหม่เกิน INACTIVE_DAYS วัน (Apps Script ยังส่งไฟล์ล่าสุด 1 ไฟล์ให้ — เครื่องไม่หายจากระบบ)
+export const isInactive = (device, at = nowMs()) =>
+  !device.lastModified || (at - Date.parse(device.lastModified)) / 86400000 > INACTIVE_DAYS;
 export const isOnline = (device, at = nowMs()) =>
   !!device.lastModified && (at - Date.parse(device.lastModified)) / 60000 <= OFFLINE_MINUTES;
 
@@ -121,6 +151,7 @@ export const isOnline = (device, at = nowMs()) =>
 // lastRecord = เวลาของแถวล่าสุด (epoch แบบเวลาในไฟล์ = เวลาไทย) หรือ null ถ้าไม่รู้
 // at = ประเมิน ณ เวลานี้ (ms) — ส่ง index.__asOf เพื่อไม่ให้รายการเก่า (เชื่อมต่อไม่สำเร็จ) กลายเป็น Offline
 export function deviceStatus(device, lastRecord, at = nowMs()) {
+  if (isInactive(device, at)) return "inactive";
   if (!isOnline(device, at)) return "offline";
   if (lastRecord == null || Number.isNaN(lastRecord)) return "online";
   const recordReal = lastRecord - zoneOffset(FILE_TIME_ZONE, lastRecord); // เวลาไทย → เวลาจริง
