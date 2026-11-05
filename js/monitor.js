@@ -18,6 +18,7 @@ import { onThemeChange } from "./theme.js";
 import { REFRESH_MS, PREVIEW_HOURS, INACTIVE_DAYS } from "./config.js";
 import {
   getIndex, getFileText, prefetchFiles, describeTiming, explainError, filesInRange, deviceStatus, ageMinutes, isDemo, formatAgo, formatIso, mapLimit, onResume,
+  getLabels, saveLabel, LABEL_MAX, LABEL_RE,
 } from "./monitor-api.js";
 import { isEspHeader, decodeEspFields, ESP_COLUMN_NAMES } from "./espdecoder.js";
 import {
@@ -61,6 +62,16 @@ const MSG = {
   cause:     { th: "สาเหตุ: {cause}", en: "Cause: {cause}" },
   fileFail:  { th: "โหลดข้อมูลบางเครื่องไม่สำเร็จ ({message}) — จะลองใหม่อัตโนมัติ", en: "Some devices could not be loaded ({message}). Retrying automatically." },
   failedAsOf:{ th: "เชื่อมต่อระบบไม่สำเร็จ ({message}) — แสดงสถานะ ณ {time} จะลองใหม่อัตโนมัติ", en: "Could not connect ({message}). Showing status as of {time}. Retrying automatically." },
+  addLabel:  { th: "เพิ่มคำอธิบายเครื่อง (ภาษาอังกฤษ)", en: "Add a description (English)" },
+  editLabel: { th: "แก้ไขคำอธิบายเครื่อง", en: "Edit description" },
+  addShort:  { th: "เพิ่มคำอธิบาย", en: "Add description" },
+  clearLabel:{ th: "ลบคำอธิบายทิ้ง", en: "Delete description" },
+  labelAria: { th: "คำอธิบายของ {name}", en: "Description of {name}" },
+  save:      { th: "บันทึก", en: "Save" },
+  cancel:    { th: "ยกเลิก", en: "Cancel" },
+  englishOnly:{ th: "English only — ใช้ได้เฉพาะ A–Z, 0–9, ช่องว่าง และ - _ . , / ( ) # :",
+                en: "English only — use A–Z, 0–9, space and - _ . , / ( ) # :" },
+  saveFailed:{ th: "บันทึกไม่สำเร็จ ({message})", en: "Could not save ({message})." },
 };
 const SENSOR_ERRORS = ["Cabin[0].airTemp.Err", "Cabin[1].airTemp.Err", "Cabin[0].evaTemp.Err", "Cabin[1].evaTemp.Err"];
 // เซนเซอร์บนการ์ด: ลำดับ + ชื่อย่อ (ผู้ใช้กำหนด เฉพาะหน้านี้ — หน้ากราฟเต็มยังใช้ชื่อเต็ม)
@@ -74,7 +85,9 @@ const FILE_CONCURRENCY = 6;
 const PREVIEW_HEIGHT = 200;
 
 const $ = (id) => document.getElementById(id);
-const state = { index: null, data: new Map(), loaded: new Set(), checked: null, error: null, stale: 0, filter: "all", busy: false, hovering: false };
+// labels = คำอธิบายเครื่อง { ชื่อ: ข้อความ }, labelsOn = Worker รองรับ (แสดงปุ่ม ✎), editing = ชื่อเครื่องที่กำลังแก้ (ระหว่างนั้นไม่วาดการ์ดใหม่)
+const state = { index: null, data: new Map(), loaded: new Set(), checked: null, error: null, stale: 0, filter: "all", busy: false, hovering: false,
+  labels: {}, labelsOn: false, editing: null, cancelEdit: null, renderPending: false };
 
 // วาดการ์ดใหม่ไม่ถี่เกิน (ระหว่างโหลดข้อมูลทีละเครื่อง)
 let renderTimer = 0;
@@ -128,7 +141,9 @@ async function refresh() {
   $("mon-sync").classList.add("spinning"); // ไอคอนหมุนระหว่างปรับปรุงข้อมูล
   const t0 = performance.now();
   try {
-    const index = await getIndex();
+    // คำอธิบายเครื่องโหลดพร้อมรายการเครื่อง — ไม่สำเร็จก็ใช้ของเดิม (ไม่ทำให้หน้าล้ม)
+    const [index, labels] = await Promise.all([getIndex(), getLabels().catch(() => undefined)]);
+    if (labels !== undefined) { state.labels = labels || {}; state.labelsOn = labels !== null; }
     state.index = index;
     state.stale = index.__stale || 0; // Worker ตอบรายการเก่าเพราะ Apps Script ช้า (วินาที)
     state.error = null;
@@ -180,6 +195,9 @@ function deviceList() {
 }
 
 function render() {
+  // กำลังแก้คำอธิบาย → ไม่วาดการ์ดใหม่ (ข้อความที่พิมพ์จะหาย) วาดทีเดียวหลังบันทึก / ยกเลิก
+  if (state.editing) { state.renderPending = true; return; }
+  state.renderPending = false;
   $("mon-demo").hidden = !isDemo();
   const notice = state.error || (state.stale > 120 ? t(MSG.stale, { n: Math.round(state.stale / 60) }) : "");
   $("mon-error").hidden = !notice;
@@ -208,7 +226,7 @@ function render() {
   plots.clear();
   const query = $("mon-search").value.trim().toLowerCase();
   const shown = all.filter((d) => (state.filter === "all" ? groupOf(d) !== "inactive" : groupOf(d) === state.filter)
-    && (!query || d.name.toLowerCase().includes(query)));
+    && (!query || `${d.name} ${state.labels[d.name] || ""}`.toLowerCase().includes(query))); // ค้นได้ทั้งชื่อและคำอธิบาย
   const grid = $("mon-devices");
   if (!state.index) { grid.innerHTML = `<p class="muted">${t(MSG.loading)}</p>`; return; }
   if (!shown.length) { grid.innerHTML = `<p class="muted">${t(all.length ? MSG.empty : MSG.noDevice)}</p>`; return; }
@@ -233,6 +251,8 @@ function deviceCard({ name, dev, data, status }) {
   const head = el("div", "device-head");
   head.append(el("strong", "", name), el("span", `status-pill ${status}`, t(MSG[`status_${status}`])));
   a.append(head);
+  const tag = labelView(name); // คำอธิบายเครื่อง: บรรทัดใต้ชื่อ (ผู้ใช้เลือก)
+  if (tag) a.append(tag);
 
   if (!data) {
     a.append(el("p", "muted small", t(state.loaded.has(name) ? MSG.noData : MSG.loadingData)));
@@ -323,6 +343,115 @@ function deviceCard({ name, dev, data, status }) {
   return { node: a, drawPlot: () => drawPreview(name, data, plotBox, fill) };
 }
 
+// ---------- คำอธิบายเครื่อง (บรรทัดใต้ชื่อ) ----------
+// บรรทัดเดียว ยาวเกินการ์ด = ตัด … ชี้แล้วเห็นเต็ม · ✎ = แก้ (ผู้ใช้ที่อนุมัติแล้วทุกคน)
+// ยังไม่มีคำอธิบาย = "✎ เพิ่มคำอธิบาย" จางๆ (ทุกการ์ดมีบรรทัดนี้ ข้อมูลข้างล่างจะได้อยู่ระดับเดียวกัน)
+// การ์ดเป็นลิงก์ <a> → ทุกคลิกในส่วนนี้ preventDefault ไม่ให้เปิดหน้ากราฟ
+const stopLink = (e) => { e.preventDefault(); e.stopPropagation(); };
+
+function labelView(name) {
+  const text = state.labels[name] || "";
+  if (!text && !state.labelsOn) return null;
+  const box = el("div", "device-tag");
+  const span = el("span", "device-tag-text", text);
+  span.title = text;
+  if (text) box.append(span);
+  if (state.labelsOn) {
+    const btn = el("button", `device-tag-edit${text ? "" : " empty"}`, text ? "✎" : `✎ ${t(MSG.addShort)}`);
+    btn.type = "button";
+    btn.title = t(text ? MSG.editLabel : MSG.addLabel);
+    btn.setAttribute("aria-label", btn.title);
+    btn.addEventListener("click", (e) => { stopLink(e); openLabelEditor(name, box); });
+    box.append(btn);
+  }
+  return box;
+}
+
+function openLabelEditor(name, box) {
+  if (state.cancelEdit) state.cancelEdit(); // แก้ได้ทีละเครื่อง
+  state.editing = name;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.id = `label-${name}`;
+  input.maxLength = LABEL_MAX;
+  input.value = state.labels[name] || "";
+  input.placeholder = "e.g. Lab 2 - Durability test";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  const ok = el("button", "device-tag-btn", "✓");
+  const cancel = el("button", "device-tag-btn", "✕");
+  // 🗑 = ลบคำอธิบายทิ้งแล้วออกจากการแก้ทันที (ไม่ต้องกด ✓) — มีเฉพาะเครื่องที่มีคำอธิบายอยู่แล้ว
+  const clear = el("button", "device-tag-btn", "🗑");
+  ok.type = cancel.type = clear.type = "button";
+  // ข้อความของปุ่ม (ชี้แล้วเห็น) — เรียกซ้ำตอนเปลี่ยนภาษาระหว่างแก้ (การ์ดไม่ถูกวาดใหม่ระหว่างแก้)
+  const applyTexts = () => {
+    ok.title = t(MSG.save);
+    cancel.title = t(MSG.cancel);
+    clear.title = t(MSG.clearLabel);
+    [ok, cancel, clear].forEach((b) => b.setAttribute("aria-label", b.title));
+    input.setAttribute("aria-label", t(MSG.labelAria, { name }));
+  };
+  applyTexts();
+  const form = el("div", "device-tag-form");
+  form.append(input, ok, ...(state.labels[name] ? [clear] : []), cancel);
+  form.addEventListener("click", stopLink);
+  const hint = el("p", "device-tag-hint");
+  hint.hidden = true;
+  box.replaceWith(form);
+  form.after(hint);
+
+  const check = () => {
+    const bad = !LABEL_RE.test(input.value);
+    input.classList.toggle("invalid", bad);
+    hint.textContent = bad ? t(MSG.englishOnly) : "";
+    hint.hidden = !bad;
+    ok.disabled = bad;
+    return !bad;
+  };
+  const close = () => {
+    state.editing = null;
+    state.cancelEdit = null;
+    state.editorLanguage = null;
+    hint.remove();
+    render();
+  };
+  let saving = false;
+  const save = async (text = input.value) => {
+    if (saving || (text && !check())) return;
+    saving = true;
+    input.disabled = ok.disabled = clear.disabled = true;
+    try {
+      state.labels = await saveLabel(name, text);
+      close();
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) { location.reload(); return; }
+      saving = false;
+      input.disabled = ok.disabled = clear.disabled = false;
+      hint.textContent = t(MSG.saveFailed, { message: err.message || String(err) });
+      hint.hidden = false;
+      input.focus();
+    }
+  };
+  input.addEventListener("input", check);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); save(input.value); }
+    else if (e.key === "Escape") { e.preventDefault(); close(); }
+  });
+  ok.addEventListener("click", () => save());
+  clear.addEventListener("click", () => save(""));
+  cancel.addEventListener("click", close);
+  state.cancelEdit = close;
+  state.editorLanguage = () => {
+    applyTexts();
+    if (!hint.hidden) {
+      if (LABEL_RE.test(input.value)) hint.hidden = true; // ข้อความ error บันทึกไม่สำเร็จ (ภาษาเดิม) → ซ่อน
+      else check(); // "English only" ภาษาใหม่
+    }
+  };
+  input.focus();
+  input.select();
+}
+
 // ท้ายการ์ด (ชิดล่างเสมอ — การ์ดในแถวเดียวกันสูงเท่ากัน): ข้อความแจ้งเตือน, ปรับปรุงล่าสุด, ดูกราฟเต็ม
 function appendFooter(card, dev, notes, status) {
   const foot = el("div", "device-foot");
@@ -389,13 +518,17 @@ function drawPreview(name, data, box, fill) {
 // เริ่มแสดงข้อมูล (หลังได้รับอนุมัติ หรือโหมดข้อมูลจำลอง)
 function startMonitor() {
   $("mon-app").hidden = false;
-  $("mon-search").addEventListener("input", render);
+  // ค้นหา / กรอง ระหว่างแก้คำอธิบาย = ยกเลิกการแก้ก่อน
+  const stopEditing = () => { if (state.cancelEdit) state.cancelEdit(); };
+  $("mon-search").addEventListener("input", () => { stopEditing(); render(); });
   document.querySelectorAll(".seg [data-filter]").forEach((b) => b.addEventListener("click", () => {
+    stopEditing();
     state.filter = b.dataset.filter;
     render();
   }));
   $("mon-refresh").addEventListener("click", refresh);
-  onLanguageChange(render);
+  // เปลี่ยนภาษา: ระหว่างแก้คำอธิบาย → เปลี่ยนข้อความของช่องแก้ทันที (การ์ดอื่นวาดใหม่หลังแก้เสร็จ)
+  onLanguageChange(() => { if (state.editorLanguage) state.editorLanguage(); render(); });
   onThemeChange(render); // สีแกนกราฟย่อตามโหมด
   let resizeTimer = 0;
   window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 200); });

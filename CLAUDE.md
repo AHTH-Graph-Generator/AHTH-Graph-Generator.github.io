@@ -351,7 +351,7 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
   - `server/worker/worker.js`: login OTP ทางอีเมล + สมัคร/อนุมัติ + ตรวจสิทธิ์ทุกคำขอ + API แอดมิน — ค่าลับใน Worker secrets:
     `APPS_SCRIPT_KEY`, `SESSION_SECRET`, `ADMIN_EMAIL` + Text `APPS_SCRIPT_URL` + KV `USERS`
     - API: `POST /auth/request-code`, `POST /auth/verify` → token (Bearer, HMAC, 30 วัน), `GET /auth/me`, `POST /auth/apply`,
-      `GET /index`, **`GET /range?device=&from=&to=`** (ไฟล์ย้อนหลังของเครื่องเดียว ≤ 92 วัน, จำ 10 นาที), `GET /file?id=&v=`, **`GET /files?f=<id>@<modified>,…`** (หลายไฟล์ → JSON `{files, errors}`, ไฟล์ที่ไม่มีใน cache รวมเรียก Apps Script ครั้งเดียว,
+      `GET /index`, **`GET|POST /labels`** (คำอธิบายเครื่อง, KV `labels`, จำ 30 วินาที), **`GET /range?device=&from=&to=`** (ไฟล์ย้อนหลังของเครื่องเดียว ≤ 92 วัน, จำ 10 นาที), `GET /file?id=&v=`, **`GET /files?f=<id>@<modified>,…`** (หลายไฟล์ → JSON `{files, errors}`, ไฟล์ที่ไม่มีใน cache รวมเรียก Apps Script ครั้งเดียว,
       ไฟล์ที่คำขออื่นกำลังโหลดรอผลเดียวกัน), `GET|POST /admin/users` (action: approve / reject / revoke / delete)
     - **ทุกคำตอบข้อมูลมี `Server-Timing`**: `auth` / `kv` / `cache;desc="hit n/m"` / `as` (รอ Apps Script) / `gs` (เวลาทำงานในสคริปต์) / `total`
     - สถานะผู้ใช้: new → pending (ขอสิทธิ์) → approved / rejected / revoked; `ADMIN_EMAIL` = approved + แอดมินเสมอ
@@ -391,7 +391,16 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
       หน้า monitor แสดงบรรทัด "เวลาที่ใช้ … → ปกติ / ช้าที่ Google Apps Script / ช้าที่เครือข่ายของเครื่องนี้" ใต้ "ตรวจสอบล่าสุด" (ช้า ≥ 2 วินาที = พื้นเหลือง),
       หน้ากราฟ device แสดงเมื่อชี้ที่เวลาตรวจสอบล่าสุด · `explainError()` ต่อท้ายข้อความ error ด้วย "สาเหตุ: …" (เน็ต / timeout / โควตา 429 / ต้องอนุญาตสิทธิ์ / Apps Script / Worker)
   - `monitor.html` + `js/monitor.js` — **การ์ดต่อ 1 device (ผู้ใช้กำหนด)**:
-    1. ชื่อ + สถานะ (3 แบบ ด้านล่าง)
+    1. ชื่อ + สถานะ (3 แบบ ด้านล่าง) · **บรรทัดใต้ชื่อ = คำอธิบายเครื่อง** (ข้อมูลข้างล่างขยับลง)
+       - **คำอธิบายเครื่อง (ผู้ใช้กำหนด 2026-11-05)**: บอกว่าเครื่องใช้ทำอะไร — **อยู่บรรทัดใต้ชื่อ** (เดิมอยู่ข้างชื่อ ผู้ใช้ให้ย้าย) — **ภาษาอังกฤษเท่านั้น**
+         (A–Z, 0–9, ช่องว่าง และ `- _ . , / ( ) # :` — พิมพ์อย่างอื่นขึ้น "English only" กดบันทึกไม่ได้) ยาวไม่เกิน `LABEL_MAX` 40 ตัว
+         · บรรทัดเดียว ยาวเกินการ์ด = ตัด … ชี้แล้วเห็นเต็ม · ยังไม่มี = "✎ เพิ่มคำอธิบาย" จางๆ (ทุกการ์ดมีบรรทัดนี้ ข้อมูลอยู่ระดับเดียวกัน)
+         · **ผู้ใช้ที่อนุมัติแล้วทุกคนแก้ได้** (ไม่จำกัดแอดมิน) ด้วยปุ่ม ✎ บนการ์ด → ช่องพิมพ์ ✓ / Enter บันทึก, ✕ / Esc ยกเลิก, ว่าง = ลบ
+           · **🗑 = ลบคำอธิบายทิ้งแล้วออกจากการแก้ทันที ไม่ต้องกด ✓** (ผู้ใช้ขอ 2026-11-05 — มีเฉพาะเครื่องที่มีคำอธิบายอยู่แล้ว) · ระหว่างแก้การ์ดไม่วาดใหม่
+         · **ช่องค้นหาค้นได้ทั้งชื่อและคำอธิบาย** · หน้ากราฟเต็มแสดงต่อท้ายชื่อเครื่องในหัวเว็บ (`#live-label`, `.nav-current`, ชื่อแท็บ)
+         · เก็บใน **Worker KV `labels`** (`{device: {text, by, at}}` — by/at ไว้ตรวจย้อนหลัง ส่งให้เว็บแค่ข้อความ) **ไม่อยู่ใน repo**
+           `GET /labels` / `POST /labels {device, label}` · Worker รุ่นเก่า (404) = ไม่แสดงคำอธิบาย/ปุ่ม ✎ · `?demo` เก็บใน localStorage `demoLabels`
+         · โค้ด: `getLabels()` / `saveLabel()` / `LABEL_RE` ใน monitor-api.js, `labelView()` / `openLabelEditor()` ใน monitor.js
     2. **ซอฟต์แวร์** + **ข้อมูล ณ** (เวลาของแถวที่แสดง, "(ล่าสุด)" ถ้าเป็นแถวล่าสุด) — อยู่เหนือกราฟ
     3. **กราฟอุณหภูมิย่อ** `PREVIEW_HOURS` (24) ชั่วโมงล่าสุด **สูง 200 px** — เฉพาะเซนเซอร์อุณหภูมิ สีตาม `SENSORS`, แกน Y ปรับตามข้อมูล
        (ต่างจากกราฟเต็มที่คงที่ −60…60), แกนเวลา HH:mm, ช่วงข้อมูลขาดไม่ลากเส้น, เซนเซอร์ที่เป็น 0 ทั้งช่วงไม่วาด
@@ -466,7 +475,7 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
 
 ### หัวเว็บ / ท้ายเว็บ
 - หัวเว็บ: `AHTH Graph Generator` ต่อท้ายด้วย **`Release version X.Y`** — เลขเวอร์ชันอยู่ที่ `APP_VERSION` ใน `js/site.js` ที่เดียว (ทุกหน้าใช้ร่วมกัน)
-  (ตอนนี้ **2.9**) ต้องเปลี่ยนทุกครั้งที่ release
+  (ตอนนี้ **3.0**) ต้องเปลี่ยนทุกครั้งที่ release
 - มุมขวาบน: ปุ่ม **สลับโหมดสว่าง / มืด** (☀️ / 🌙 แสดงโหมดที่จะสลับไป) อยู่ข้างปุ่ม TH/EN — โค้ดใน `js/theme.js`
   - ครั้งแรกใช้ตามเครื่องผู้ใช้, กดแล้วจำไว้ใน localStorage `theme`, ตั้งค่าตั้งแต่ `<head>` กันหน้าจอกระพริบ
   - สีโหมดมืดอยู่ใต้ `:root[data-theme="dark"]` ใน style.css; สลับโหมดแล้วสร้างกราฟใหม่ (คงช่วง zoom)
@@ -584,6 +593,8 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
   js/stats.js         คำนวณ min/max/avg
   docs/WORKFLOW.md    เอกสาร: โปรแกรมทำงานอย่างไร (อัปเดตเมื่อเปลี่ยนโครงสร้าง/การไหลของข้อมูล)
   docs/GUIDE.md       เอกสาร: คู่มือนักพัฒนาทีละขั้น (อัปเดตเมื่อเปลี่ยนวิธีเพิ่มรายการ/ทดสอบ/release)
+  docs/developer-guide.html  เอกสารสอนนักพัฒนาแบบละเอียด (26 บท) — ต้นฉบับของ Artifact https://claude.ai/artifact/P1UrDbcfBi4fmGvYMcYeGp
+                      (ไม่มี <!doctype> เพราะ Artifact ห่อให้เอง · แก้แล้ว publish ด้วย Artifact tool + url นี้)
   docs/AHTH-Graph-Generator-Training.pptx  สไลด์สอน — สร้างจาก tools/make-training-deck.py (แก้ที่ script ไม่แก้ .pptx ตรงๆ)
   samples/sample.*    ไฟล์ตัวอย่างข้อมูลปลอม .log/.csv/.xlsx (สร้างด้วย tools/make-sample.py)
   samples/esp32/      CSV ดิบตัวอย่างแบบ ESP32 ข้อมูลปลอม device DEMO01 2 วัน (tools/make-esp-sample.py)
@@ -619,4 +630,6 @@ Ice making mode / First ice / Ice making sensor error = RGB(0,90,255)
   (commit / push ได้เฉพาะเมื่อผมสั่งในแชทครั้งนั้นๆ)
 - push = เว็บจริงเปลี่ยนทันที (GitHub Pages จาก branch `main`) → ก่อน push เช็กว่าไม่มีไฟล์ใน `samples/private/` หรือ log จริงหลุดเข้า commit
 - commit message ภาษาอังกฤษ สั้น กระชับ
+- **เพิ่มอะไรใหม่ที่เกี่ยวกับ coding (ฟีเจอร์ใหม่ / โครงสร้าง / API / เทคนิคใหม่) → อัปเดตเอกสารสอน `docs/developer-guide.html` แล้ว publish Artifact เดิมด้วย** (ผู้ใช้กำหนด 2026-11-05)
+  — แค่เพิ่มสิ่งเดิมๆ (รายการใน `STATUS_ITEMS` แบบที่มีอยู่, เปลี่ยนสี / ชื่อ / ตำแหน่ง Y, แก้บั๊กเล็ก) ไม่ต้องอัปเดต
 - ถ้าคำสั่งของผมเป็นกฎหรือข้อกำหนดที่ควรใช้ต่อไป (เช่น พฤติกรรม UI, ข้อจำกัด, รูปแบบข้อมูล) ให้เพิ่ม/แก้ใน CLAUDE.md เองทันทีโดยไม่ต้องถาม แล้วแจ้งสั้นๆ ว่าเพิ่มอะไร

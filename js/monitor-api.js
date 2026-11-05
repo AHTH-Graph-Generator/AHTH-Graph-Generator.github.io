@@ -38,6 +38,46 @@ function demoIndex() {
   };
 }
 
+// ---------- คำอธิบายเครื่อง (ภาษาอังกฤษ) — เก็บใน KV ของ Worker, ผู้ใช้ที่อนุมัติแล้วทุกคนแก้ได้ ----------
+export const LABEL_MAX = 40; // เท่ากับ LABEL_MAX ใน worker.js
+export const LABEL_RE = /^[A-Za-z0-9 _.,\/()#:-]*$/; // A–Z, 0–9, ช่องว่าง และ - _ . , / ( ) # :
+export const cleanLabel = (text) => String(text || "").replace(/\s+/g, " ").trim();
+const DEMO_LABELS_KEY = "demoLabels";
+const DEMO_LABELS = { DEMO01: "Lab 2 - Durability test", DEMO02: "Customer site (Bangkok)" };
+let labelsSupported = true; // false = Worker รุ่นเก่ายังไม่มี /labels → ไม่แสดงคำอธิบาย / ปุ่มแก้
+
+function demoLabels() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DEMO_LABELS_KEY));
+    if (saved && typeof saved === "object") return saved;
+  } catch { /* ไม่มี storage */ }
+  return { ...DEMO_LABELS };
+}
+
+// { <device>: "ข้อความ" } · null = Worker ยังไม่รองรับ
+export async function getLabels() {
+  if (isDemo()) return demoLabels();
+  if (!labelsSupported) return null;
+  try {
+    return (await api("/labels")).labels || {};
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) { labelsSupported = false; return null; }
+    throw err;
+  }
+}
+
+// บันทึก ("" = ลบ) → รายการคำอธิบายทั้งหมดหลังแก้
+export async function saveLabel(device, text) {
+  const label = cleanLabel(text);
+  if (isDemo()) {
+    const labels = demoLabels();
+    if (label) labels[device] = label; else delete labels[device];
+    try { localStorage.setItem(DEMO_LABELS_KEY, JSON.stringify(labels)); } catch { /* ไม่มี storage */ }
+    return labels;
+  }
+  return (await api("/labels", { method: "POST", body: { device, label } })).labels || {};
+}
+
 export async function getIndex() {
   const index = isDemo() ? demoIndex() : await api("/index");
   // __asOf = เวลาที่รายการนี้เป็นปัจจุบัน (Worker ตอบรายการเก่า → ย้อนตามอายุ) — ใช้ประเมินสถานะ

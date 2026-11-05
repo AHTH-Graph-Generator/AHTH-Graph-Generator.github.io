@@ -1,0 +1,1259 @@
+<title>คู่มือสร้างเว็บ AHTH Graph Generator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* Layout concept: an engineering field manual for a refrigerator-log website.
+   Left rail = chapters grouped by part, right = reading column. Colours follow the site itself (primary blue + amber dot of the favicon).
+   Four fixed "layer" colours are reused in every diagram: Page (blue) · Worker (green) · Data/config (amber) · Server (violet). Sensor colours are the real ones from logformat.js. */
+:root{
+  --bg:#f2f4f7; --surface:#ffffff; --surface2:#e9edf3;
+  --fg:#1c2430; --head:#0d1520; --muted:#566275; --line:#d9dfe8; --line2:#c3ccd8;
+  --accent:#1f6feb; --accent-ink:#ffffff; --amber:#b86e00;
+  --l-page:#1f6feb; --l-wrk:#0a7d55; --l-data:#a86400; --l-srv:#6a44c9;
+  --l-page-bg:rgba(31,111,235,.08); --l-wrk-bg:rgba(10,125,85,.08); --l-data-bg:rgba(168,100,0,.09); --l-srv-bg:rgba(106,68,201,.08);
+  --code-bg:#0f1620; --code-fg:#dbe3ee; --code-mute:#7d8ca2; --code-key:#7cb7ff; --code-str:#ffc46b; --code-num:#6fe0b0;
+  --ok:#0a7d55; --warn:#8a5a00; --bad:#c0362c;
+  --font-body:'IBM Plex Sans Thai','Noto Sans Thai',system-ui,sans-serif;
+  --font-display:'Bai Jamjuree','IBM Plex Sans Thai','Noto Sans Thai',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e131a; --surface:#161d27; --surface2:#1e2734;
+    --fg:#d9e1ec; --head:#f3f7fc; --muted:#94a2b6; --line:#263142; --line2:#33405460;
+    --accent:#5a9bff; --accent-ink:#06121f; --amber:#ffb84d;
+    --l-page:#5a9bff; --l-wrk:#3fd49a; --l-data:#ffb84d; --l-srv:#ab8cff;
+    --l-page-bg:rgba(90,155,255,.11); --l-wrk-bg:rgba(63,212,154,.10); --l-data-bg:rgba(255,184,77,.10); --l-srv-bg:rgba(171,140,255,.12);
+    --code-bg:#0a0f15; --ok:#3fd49a; --warn:#ffb84d; --bad:#ff7a70;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e131a; --surface:#161d27; --surface2:#1e2734;
+  --fg:#d9e1ec; --head:#f3f7fc; --muted:#94a2b6; --line:#263142; --line2:#33405460;
+  --accent:#5a9bff; --accent-ink:#06121f; --amber:#ffb84d;
+  --l-page:#5a9bff; --l-wrk:#3fd49a; --l-data:#ffb84d; --l-srv:#ab8cff;
+  --l-page-bg:rgba(90,155,255,.11); --l-wrk-bg:rgba(63,212,154,.10); --l-data-bg:rgba(255,184,77,.10); --l-srv-bg:rgba(171,140,255,.12);
+  --code-bg:#0a0f15; --ok:#3fd49a; --warn:#ffb84d; --bad:#ff7a70;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:16px;line-height:1.78;margin:0;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 64px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:var(--bg)}
+.wrap{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:250px minmax(0,1fr);gap:40px;align-items:start}
+@media (max-width:920px){.wrap{grid-template-columns:minmax(0,1fr);gap:0}}
+nav.toc{position:sticky;top:max(16px,env(safe-area-inset-top,0px));margin:20px 0;padding:16px 10px;max-height:calc(100vh - 40px);overflow:auto;font-size:14px;
+  background:var(--surface);border:1px solid var(--line);border-radius:14px;scrollbar-width:thin}
+nav.toc .brand{display:flex;align-items:center;gap:10px;font-family:var(--font-display);font-weight:700;font-size:15px;color:var(--head);margin:0 6px 10px}
+nav.toc a{display:block;padding:5px 12px;border-radius:8px;color:var(--muted);text-decoration:none;line-height:1.45}
+nav.toc a:hover{color:var(--head);background:var(--surface2)}
+nav.toc a.on{color:var(--accent);background:color-mix(in srgb,var(--accent) 11%,transparent);font-weight:600}
+nav.toc .grp{margin:16px 8px 4px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);font-family:var(--font-mono);font-weight:700}
+@media (max-width:920px){
+  nav.toc{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;gap:6px;overflow-x:auto;margin:0 calc(-1 * max(16px,env(safe-area-inset-left,0px)));padding:10px max(16px,env(safe-area-inset-left,0px));
+    background:var(--bg);max-height:none;border:0;border-bottom:1px solid var(--line);border-radius:0}
+  nav.toc .brand,nav.toc .grp{display:none}
+  nav.toc a{white-space:nowrap;border:1px solid var(--line);background:var(--surface)}
+}
+main{min-width:0;padding-top:28px}
+header.hero{padding:16px 0 28px;border-bottom:1px solid var(--line)}
+.eyebrow{font-family:var(--font-mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);font-weight:700;display:flex;align-items:center;gap:10px}
+h1{font-family:var(--font-display);font-size:clamp(30px,4.6vw,50px);line-height:1.18;margin:12px 0 14px;font-weight:700;text-wrap:balance;color:var(--head)}
+h1 em{font-style:normal;color:var(--accent)}
+.lede{font-size:18px;color:var(--muted);max-width:66ch;margin:0}
+h2{font-family:var(--font-display);font-size:clamp(24px,3vw,33px);line-height:1.3;margin:0 0 6px;font-weight:700;text-wrap:balance;color:var(--head)}
+h2 .num{font-family:var(--font-mono);color:var(--amber);font-size:.7em;margin-right:10px;vertical-align:.12em}
+h3{font-family:var(--font-display);font-size:21px;margin:30px 0 8px;font-weight:600;text-wrap:balance;color:var(--head)}
+h4{font-size:13px;margin:20px 0 6px;font-weight:700;color:var(--muted);font-family:var(--font-mono);letter-spacing:.05em;text-transform:uppercase}
+section.ch{padding:40px 0 6px;border-top:1px solid var(--line);margin-top:22px;scroll-margin-top:62px}
+.part{margin:56px 0 -6px;font-family:var(--font-mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:12px}
+.part::after{content:"";flex:1;height:1px;background:var(--line2)}
+section.ch>.sub{color:var(--muted);margin:0 0 18px;max-width:68ch}
+p,li{max-width:72ch}
+ul,ol{padding-left:22px}
+li{margin:4px 0}
+a{color:var(--accent);text-underline-offset:3px}
+b,strong{color:var(--head);font-weight:600}
+code{font-family:var(--font-mono);font-size:.85em;background:var(--surface2);border:1px solid var(--line);padding:1px 6px;border-radius:5px;word-break:break-word}
+.pill{display:inline-block;font-family:var(--font-mono);font-size:11.5px;padding:0 9px;border-radius:99px;border:1px solid currentColor;white-space:nowrap;line-height:1.7}
+.pill.page{color:var(--l-page)}.pill.wrk{color:var(--l-wrk)}.pill.data{color:var(--l-data)}.pill.srv{color:var(--l-srv)}
+.note{border:1px solid color-mix(in srgb,var(--accent) 32%,transparent);background:color-mix(in srgb,var(--accent) 6%,var(--surface));padding:12px 18px;margin:18px 0;border-radius:12px;max-width:74ch}
+.note.warn{border-color:color-mix(in srgb,var(--warn) 45%,transparent);background:color-mix(in srgb,var(--warn) 8%,var(--surface))}
+.note.bad{border-color:color-mix(in srgb,var(--bad) 45%,transparent);background:color-mix(in srgb,var(--bad) 7%,var(--surface))}
+.note b.t{display:block;font-family:var(--font-mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:2px;font-weight:700}
+.note.warn b.t{color:var(--warn)}.note.bad b.t{color:var(--bad)}
+figure{margin:20px 0;min-width:0}
+figure .scroll{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+figure svg{display:block;max-width:100%;height:auto;margin:0 auto;color:var(--fg)}
+figcaption{font-size:14px;color:var(--muted);margin-top:8px;max-width:74ch}
+svg text{font-family:var(--font-body)}
+svg text:not([fill]){fill:currentColor}
+svg .mono{font-family:var(--font-mono)}
+.tblw{overflow-x:auto;margin:16px 0;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:560px}
+th,td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top;line-height:1.55}
+th{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-family:var(--font-mono);background:var(--surface2);font-weight:600}
+tr:last-child td{border-bottom:0}
+td code{white-space:nowrap}
+.code{margin:14px 0;border-radius:12px;overflow:hidden;background:var(--code-bg);border:1px solid var(--line);min-width:0}
+.code .hd{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 14px;font-family:var(--font-mono);font-size:12px;color:var(--code-mute);border-bottom:1px solid #ffffff14}
+.code .hd button{font:inherit;color:var(--code-fg);background:#ffffff14;border:0;border-radius:99px;padding:2px 12px;cursor:pointer}
+.code .hd button:hover{background:#ffffff26}
+button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.code pre{margin:0;padding:13px 16px;overflow-x:auto;font-family:var(--font-mono);font-size:13px;line-height:1.7;color:var(--code-fg);tab-size:2}
+.code pre .c{color:var(--code-mute)}.code pre .k{color:var(--code-key)}.code pre .s{color:var(--code-str)}.code pre .n{color:var(--code-num)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:14px;margin:16px 0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0}
+.card h4{margin-top:0}
+.card.page{border-top:3px solid var(--l-page)}.card.wrk{border-top:3px solid var(--l-wrk)}.card.data{border-top:3px solid var(--l-data)}.card.srv{border-top:3px solid var(--l-srv)}
+.card.page h4{color:var(--l-page)}.card.wrk h4{color:var(--l-wrk)}.card.data h4{color:var(--l-data)}.card.srv h4{color:var(--l-srv)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:16px 0}
+.steps li{counter-increment:s;position:relative;padding:10px 14px 10px 54px;margin:8px 0;background:var(--surface);border:1px solid var(--line);border-radius:12px;max-width:none}
+.steps li::before{content:counter(s);position:absolute;left:13px;top:10px;width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-family:var(--font-mono);font-weight:700;display:grid;place-items:center;font-size:13.5px}
+details{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin:10px 0;padding:0 16px}
+details>summary{cursor:pointer;padding:10px 0;font-weight:600;color:var(--head);list-style:none}
+details>summary::-webkit-details-marker{display:none}
+details>summary::before{content:"+";display:inline-block;width:22px;font-family:var(--font-mono);color:var(--accent)}
+details[open]>summary::before{content:"\2212"}
+details>div{padding:0 0 12px}
+.check{padding:0;margin:10px 0}
+.check li{list-style:none;margin:5px 0;max-width:none}
+.check label{display:flex;gap:10px;align-items:flex-start;cursor:pointer}
+.check input{margin-top:6px;accent-color:var(--accent);width:18px;height:18px;flex:none}
+.check li.done label span{color:var(--muted);text-decoration:line-through}
+.progress{font-family:var(--font-mono);font-size:13px;color:var(--muted);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.progress button{font:inherit;padding:3px 12px;border-radius:99px;border:1px solid var(--line2);background:var(--surface);color:var(--fg);cursor:pointer}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:14.5px;margin:10px 0}
+.kv dt{font-family:var(--font-mono);color:var(--muted);font-size:13px;padding-top:2px}.kv dd{margin:0}
+.swatch{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin-right:6px}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:14px}
+.logo{width:28px;height:28px;flex:none}
+.lede code{font-size:.8em}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style>
+
+<div class="wrap">
+<nav class="toc" id="toc" aria-label="สารบัญ">
+  <div class="brand"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect x="2" y="2" width="60" height="60" rx="14" fill="#1f6feb"/><path d="M12 46h40" stroke="#fff" stroke-opacity=".35" stroke-width="3" stroke-linecap="round"/><path d="M12 40 L22 30 L30 36 L40 20 L52 26" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="40" cy="20" r="5" fill="#ffb020" stroke="#fff" stroke-width="2.5"/></svg><span>AHTH · คู่มือนักพัฒนา</span></div>
+  <div class="grp">ภาพรวม</div>
+  <a href="#overview">1 เว็บนี้คืออะไร</a>
+  <a href="#rules">2 ข้อจำกัดที่ห้ามละเมิด</a>
+  <a href="#map">3 แผนที่ไฟล์</a>
+  <a href="#shared">4 ส่วนที่ทุกหน้าใช้ร่วมกัน</a>
+  <div class="grp">หน้าวิเคราะห์ไฟล์ Log</div>
+  <a href="#format">5 รูปแบบไฟล์ข้อมูล</a>
+  <a href="#flow">6 เส้นทางข้อมูล</a>
+  <a href="#stream">7 อ่านไฟล์แบบ stream</a>
+  <a href="#parser">8 Parser ใน Worker</a>
+  <a href="#gaps">9 ช่วงข้อมูลขาด / ไฟดับ</a>
+  <a href="#esp">10 ถอด CSV ดิบ ESP32</a>
+  <a href="#items">11 รายการ: STATUS_ITEMS</a>
+  <a href="#chart">12 กราฟ uPlot</a>
+  <a href="#input">13 เมาส์ / นิ้ว / ปากกา</a>
+  <a href="#table">14 ตารางและ layout</a>
+  <a href="#extras">15 Real data · โน้ต · Time zone</a>
+  <div class="grp">Monitoring</div>
+  <a href="#mon-arch">16 สถาปัตยกรรม</a>
+  <a href="#login">17 Login และสิทธิ์</a>
+  <a href="#worker">18 Cloudflare Worker</a>
+  <a href="#gas">19 Google Apps Script</a>
+  <a href="#mon-page">20 หน้า Monitoring</a>
+  <a href="#live">21 กราฟของ device</a>
+  <div class="grp">งานประจำ</div>
+  <a href="#local">22 รันในเครื่อง</a>
+  <a href="#add">23 เพิ่มรายการใหม่</a>
+  <a href="#test">24 ทดสอบก่อนปล่อย</a>
+  <a href="#release">25 Release</a>
+  <a href="#trouble">26 แก้ปัญหาที่เจอบ่อย</a>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="eyebrow">AHTH Graph Generator · Release 3.0 · คู่มือนักพัฒนา</div>
+  <h1>สร้างเว็บกราฟอุณหภูมิตู้เย็น <em>ตั้งแต่ไฟล์ log ถึง Monitoring</em></h1>
+  <p class="lede">เอกสารสำหรับศึกษาด้วยตัวเองว่าเว็บ <code>ahth-graph-generator.github.io</code> ทำงานอย่างไรและเขียนขึ้นอย่างไร ตัวอย่างโค้ดทุกชิ้นมาจากไฟล์จริงในโปรเจกต์ บท 1–4 เป็นภาพรวมและกฎ บท 5–15 อธิบายหน้าวิเคราะห์ไฟล์ Log ตั้งแต่อ่านไฟล์จนวาดกราฟ บท 16–21 อธิบายระบบ Monitoring (ESP32 → Google Drive → Apps Script → Worker → เว็บ) บท 22–26 เป็นงานประจำ: รันในเครื่อง เพิ่มรายการ ทดสอบ และปล่อยเวอร์ชัน</p>
+  <div class="cols" style="margin-top:20px">
+    <div class="card page"><h4>หน้าเว็บ</h4>HTML / CSS / JS ล้วน ทำงานใน browser ของผู้ใช้ ผูก UI วาดกราฟและตาราง</div>
+    <div class="card wrk"><h4>Web Worker</h4>อ่านไฟล์ 100 MB+ เบื้องหลัง ไม่ให้หน้าเว็บค้าง ส่งผลกลับเป็น typed array</div>
+    <div class="card data"><h4>ค่าคงที่</h4><code>logformat.js</code> ที่เดียว: ชื่อคอลัมน์ สี ตำแหน่ง Y กฎการอ่านวันที่</div>
+    <div class="card srv"><h4>เซิร์ฟเวอร์ (Monitoring)</h4>Cloudflare Worker ตรวจสิทธิ์ทุกคำขอ + Apps Script อ่าน Google Drive</div>
+  </div>
+</header>
+
+<div class="part">ส่วนที่ 1 · ภาพรวม</div>
+
+<!-- 1 -->
+<section class="ch" id="overview">
+<h2><span class="num">01</span>เว็บนี้คืออะไร</h2>
+<p class="sub">เว็บแสดงกราฟอุณหภูมิและสถานะชิ้นส่วนจากไฟล์ log ของตู้เย็น มี 2 บริการในเว็บเดียว</p>
+<div class="cols">
+  <div class="card page"><h4>วิเคราะห์ไฟล์ Log</h4><code>analyze.html</code> · ผู้ใช้เลือกไฟล์จากเครื่อง เว็บอ่านไฟล์ใน browser แสดงกราฟ เลือกช่วงเวลา ดู Min/Max/Avg และค่าดิบ · <b>ไม่ต้อง login</b></div>
+  <div class="card srv"><h4>ติดตามสถานะ Data Logger</h4><code>monitor.html</code> · การ์ดของ ESP32 แต่ละเครื่อง Online/Offline อุณหภูมิล่าสุด กดเข้ากราฟเต็มที่ปรับปรุงทุก 1 นาที · <b>ต้อง login + อนุมัติ</b></div>
+</div>
+<h3>หน้าทั้งหมดในเว็บ</h3>
+<div class="tblw"><table>
+<tr><th>ไฟล์</th><th>หน้า</th><th>ใครเข้าได้</th></tr>
+<tr><td><code>index.html</code></td><td>หน้าแรก การ์ดเลือก 2 บริการ · ลิงก์เก่าที่มี query (เช่น <code>/?pentest</code>) ส่งต่อไป analyze</td><td>ทุกคน</td></tr>
+<tr><td><code>analyze.html</code></td><td>วิเคราะห์ไฟล์ Log (หน้ากราฟหลัก)</td><td>ทุกคน</td></tr>
+<tr><td><code>analyze.html?device=Q003</code></td><td>หน้ากราฟเดียวกัน แต่โหลดข้อมูลของ device เอง (<code>js/live.js</code>)</td><td>ผู้ใช้ที่อนุมัติแล้ว</td></tr>
+<tr><td><code>monitor.html</code></td><td>การ์ด device ทั้งหมด</td><td>ผู้ใช้ที่อนุมัติแล้ว</td></tr>
+<tr><td><code>admin.html</code></td><td>อนุมัติ / ปฏิเสธ / ถอนสิทธิ์ / ลบผู้ใช้</td><td>แอดมินคนเดียว</td></tr>
+</table></div>
+<div class="note"><b class="t">โหมดข้อมูลจำลอง</b>ต่อท้าย <code>?demo</code> ที่ <code>monitor.html</code> หรือ <code>analyze.html?device=DEMO01</code> จะใช้ไฟล์ตัวอย่างใน <code>samples/esp32/</code> ไม่ต้อง login เหมาะกับการทดสอบหน้าตา (DEMO01 Online, DEMO02 Offline, DEMO03 ไม่มีข้อมูลจากตู้, DEMO04 ไม่ได้ใช้งาน)</div>
+</section>
+
+<!-- 2 -->
+<section class="ch" id="rules">
+<h2><span class="num">02</span>ข้อจำกัดที่ห้ามละเมิด</h2>
+<p class="sub">ทุกการออกแบบในเอกสารนี้มาจากข้อจำกัด 5 ข้อนี้ ถ้าเข้าใจข้อจำกัด จะเข้าใจว่าทำไมโค้ดเขียนแบบนี้</p>
+<div class="tblw"><table>
+<tr><th>ข้อจำกัด</th><th>ผลต่อการเขียนโค้ด</th></tr>
+<tr><td><b>Static site บน GitHub Pages</b></td><td>ไม่มี backend ไม่มี database ทุกอย่างของหน้าวิเคราะห์ทำใน browser ส่วน Monitoring ใช้ Worker / Apps Script ที่อยู่นอก repo (ผู้ใช้ deploy เอง)</td></tr>
+<tr><td><b>ไฟล์ห้ามออกจากเครื่อง</b></td><td>อ่านไฟล์ด้วย File API ใน Web Worker เท่านั้น ไม่มี <code>fetch</code> ส่งไฟล์ไปที่ไหน โน้ต / รูป / CSV สร้างในเครื่อง</td></tr>
+<tr><td><b>ไม่มี build step</b></td><td>ES modules ล้วน (<code>&lt;script type="module"&gt;</code>) ไม่มี React / Vite / npm แก้ไฟล์แล้วรีเฟรช browser ได้เลย</td></tr>
+<tr><td><b>Library ผ่าน CDN + ล็อกเวอร์ชัน</b></td><td>มี library ภายนอกตัวเดียวคือ <code>uplot@1.6.32</code> จาก jsDelivr · อ่าน .xlsx ด้วยโค้ดที่เขียนเอง</td></tr>
+<tr><td><b>Repo เป็น Public</b></td><td>ห้าม commit log จริง / CSV จาก ESP32 / รหัสลับ / ID โฟลเดอร์ Drive / อีเมลแอดมิน ไฟล์จริงเก็บใน <code>samples/private/</code> ซึ่งอยู่ใน <code>.gitignore</code></td></tr>
+</table></div>
+<h3>อะไรลับ อะไรไม่ลับ</h3>
+<div class="cols">
+  <div class="card" style="border-top:3px solid var(--bad)"><h4 style="color:var(--bad)">ลับ: ห้ามอยู่ใน repo</h4><ul style="margin:0"><li>ค่าแต่ละแถวในไฟล์ log จริง และ CSV ดิบจาก ESP32</li><li>ข้อมูลที่ Monitoring ดึงมา</li><li><code>SECRET</code>, <code>FOLDER_ID</code>, <code>ADMIN_EMAIL</code>, <code>SESSION_SECRET</code></li></ul></div>
+  <div class="card" style="border-top:3px solid var(--ok)"><h4 style="color:var(--ok)">ไม่ลับ: อยู่ใน repo ได้</h4><ul style="margin:0"><li>โค้ดทั้งหมด ชื่อคอลัมน์ โครงสร้าง frame 228 byte</li><li>ชื่อ INI เช่น <code>RF55ID18.ini</code>, เลขซอฟต์แวร์, ชื่อ device</li><li>URL ของ Worker (ป้องกันด้วย login ไม่ใช่การซ่อน URL)</li></ul></div>
+</div>
+<div class="note warn"><b class="t">ก่อน commit ทุกครั้ง</b>รัน <code>git status</code> และดูด้วยตาว่าไม่มีไฟล์ <code>*.log</code> <code>*.csv</code> <code>*.xlsx</code> <code>~$*</code> หรือ <code>samples/private/</code> หลุดเข้ามา เพราะผู้ใช้อาจวางไฟล์จริงไว้ที่ root ของโปรเจกต์ และ push = เว็บจริงเปลี่ยนทันที</div>
+</section>
+
+<!-- 3 -->
+<section class="ch" id="map">
+<h2><span class="num">03</span>แผนที่ไฟล์: ใครอยู่ชั้นไหน</h2>
+<p class="sub">สีของกล่องในรูปนี้ใช้เหมือนกันทุกรูปในเอกสาร</p>
+<figure><div class="scroll">
+<svg viewBox="0 0 820 470" width="820" role="img" aria-label="แผนผังไฟล์ของโปรเจกต์แบ่งเป็นหน้าเว็บ Web Worker ค่าคงที่ และเซิร์ฟเวอร์">
+<defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+<rect x="16" y="14" width="500" height="200" rx="10" fill="var(--l-page-bg)" stroke="var(--l-page)" stroke-width="2"/>
+<text x="32" y="38" font-size="14" font-weight="700" fill="var(--l-page)">หน้าเว็บ (main thread)</text>
+<text x="32" y="64" font-size="12.5" class="mono">site.js · i18n.js · theme.js        ← ทุกหน้า</text>
+<text x="32" y="86" font-size="12.5" class="mono">main.js      จุดเริ่มหน้า analyze, ผูก UI</text>
+<text x="32" y="108" font-size="12.5" class="mono">chart.js     uPlot + เมาส์/นิ้ว/ปากกา</text>
+<text x="32" y="130" font-size="12.5" class="mono">stats.js · rawdata.js · annotate.js</text>
+<text x="32" y="152" font-size="12.5" class="mono">live.js      โหมด ?device= (ปรับปรุงเอง)</text>
+<text x="32" y="174" font-size="12.5" class="mono">monitor.js · admin.js · login-ui.js</text>
+<text x="32" y="196" font-size="12.5" class="mono">monitor-api.js · auth.js · config.js</text>
+
+<rect x="16" y="244" width="500" height="110" rx="10" fill="var(--l-wrk-bg)" stroke="var(--l-wrk)" stroke-width="2"/>
+<text x="32" y="268" font-size="14" font-weight="700" fill="var(--l-wrk)">Web Worker (thread แยก)</text>
+<text x="32" y="294" font-size="12.5" class="mono">parser.worker.js  อ่าน + ตรวจ + เก็บค่า</text>
+<text x="32" y="316" font-size="12.5" class="mono">sources.js        .log .txt .csv .xlsx → แถว</text>
+<text x="32" y="338" font-size="12.5" class="mono">espdecoder.js     frame 228 byte → 187 ฟิลด์</text>
+<line x1="200" y1="216" x2="200" y2="242" stroke="currentColor" stroke-width="2" marker-end="url(#a1)" marker-start="url(#a1)"/>
+<text x="210" y="234" font-size="11.5">postMessage</text>
+
+<rect x="16" y="384" width="500" height="72" rx="10" fill="var(--l-data-bg)" stroke="var(--l-data)" stroke-width="2"/>
+<text x="32" y="408" font-size="14" font-weight="700" fill="var(--l-data)">logformat.js · ใช้ทั้ง 2 ฝั่ง</text>
+<text x="32" y="434" font-size="12.5">SENSORS · STATUS_ITEMS · สี · Y · parse วันที่ · time zone · counterResets</text>
+<path d="M500 384 L500 216" stroke="var(--l-data)" stroke-width="1.6" stroke-dasharray="4 4"/>
+<path d="M470 384 L470 356" stroke="var(--l-data)" stroke-width="1.6" stroke-dasharray="4 4"/>
+
+<rect x="560" y="14" width="244" height="200" rx="10" fill="var(--l-srv-bg)" stroke="var(--l-srv)" stroke-width="2"/>
+<text x="576" y="38" font-size="14" font-weight="700" fill="var(--l-srv)">เซิร์ฟเวอร์ (deploy เอง)</text>
+<text x="576" y="64" font-size="12.5" class="mono">server/worker/worker.js</text>
+<text x="576" y="82" font-size="11.5" fill="var(--muted)">Cloudflare · login · สิทธิ์ · cache</text>
+<text x="576" y="112" font-size="12.5" class="mono">server/apps-script/Code.gs</text>
+<text x="576" y="130" font-size="11.5" fill="var(--muted)">Google · อ่าน Drive · ส่งอีเมล</text>
+<text x="576" y="166" font-size="11.5" fill="var(--muted)">คู่มือตั้งค่า:</text>
+<text x="576" y="184" font-size="12" class="mono">docs/MONITORING-SETUP.md</text>
+<line x1="518" y1="185" x2="558" y2="185" stroke="currentColor" stroke-width="2" marker-end="url(#a1)" marker-start="url(#a1)"/>
+<text x="520" y="176" font-size="10.5">HTTPS</text>
+
+<rect x="560" y="244" width="244" height="212" rx="10" fill="var(--surface)" stroke="var(--line2)" stroke-width="2"/>
+<text x="576" y="268" font-size="14" font-weight="700">เครื่องนักพัฒนา</text>
+<text x="576" y="294" font-size="12.5" class="mono">tools/make-sample.py</text>
+<text x="576" y="314" font-size="12.5" class="mono">tools/make-esp-sample.py</text>
+<text x="576" y="334" font-size="12.5" class="mono">tools/make-icons.py</text>
+<text x="576" y="354" font-size="12.5" class="mono">tools/make-training-deck.py</text>
+<text x="576" y="384" font-size="12.5" class="mono">samples/  (ข้อมูลปลอม)</text>
+<text x="576" y="404" font-size="12.5" class="mono">samples/private/ (ไม่ commit)</text>
+<text x="576" y="434" font-size="12.5" class="mono">CLAUDE.md = สเปกหลัก</text>
+</svg></div>
+<figcaption>เส้นประสีอำพัน = ทั้งหน้าเว็บและ Worker import <code>logformat.js</code> ตัวเดียวกัน ค่าคงที่จึงไม่มีวันไม่ตรงกันระหว่าง 2 ฝั่ง</figcaption></figure>
+<div class="note"><b class="t">กฎข้อเดียวที่ควรจำ</b>ค่าคงที่ (ชื่อคอลัมน์ สี ตำแหน่ง Y ตัวคูณ 0.1 เกณฑ์ช่วงข้อมูลขาด 3 × sampling) อยู่ที่ <code>js/logformat.js</code> ที่เดียว การเพิ่มรายการใหม่ส่วนใหญ่แก้แค่ไฟล์นี้ ส่วนที่ทุกหน้าใช้ร่วมกันอยู่ใน <code>site.js</code> + <code>style.css</code> ห้ามก๊อปแยกแต่ละหน้า</div>
+</section>
+
+<!-- 4 -->
+<section class="ch" id="shared">
+<h2><span class="num">04</span>ส่วนที่ทุกหน้าใช้ร่วมกัน</h2>
+<p class="sub">หัวเว็บ ท้ายเว็บ ภาษา โหมดสว่าง/มืด เลขเวอร์ชัน และ time zone ทุกหน้าเรียก <code>initSite()</code> ครั้งเดียวตอนเริ่ม</p>
+<div class="code"><div class="hd"><span>js/site.js · initSite</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="c">// เวอร์ชันที่แสดงบนหัวเว็บ — เปลี่ยนตรงนี้ที่เดียวทุกครั้งที่ release</span>
+<span class="k">export const</span> APP_VERSION = <span class="s">"3.0"</span>;
+
+<span class="k">export function</span> initSite() {
+  <span class="k">try</span> {
+    <span class="k">const</span> tz = localStorage.getItem(<span class="s">"timeZone"</span>);
+    <span class="k">if</span> (tz &amp;&amp; listTimeZones().includes(tz)) setDisplayTimeZone(tz);
+  } <span class="k">catch</span> { <span class="c">/* ไม่มี storage */</span> }
+  initLanguage();
+  initTheme();
+  <span class="k">const</span> version = document.getElementById(<span class="s">"app-version"</span>);
+  <span class="k">if</span> (version) version.textContent = APP_VERSION;
+  updateClock();
+  setInterval(updateClock, <span class="n">1000</span>);
+}</pre></div>
+
+<h3>4.1 สองภาษาด้วย <code>data-th</code> / <code>data-en</code></h3>
+<p>ข้อความใน HTML ใส่ทั้ง 2 ภาษาเป็น attribute ข้อความตั้งต้นเป็นภาษาไทย ข้อความที่ JS สร้างใช้ <code>t({ th, en }, params)</code> ซึ่งแทน <code>{name}</code> ด้วยค่าที่ส่งมา</p>
+<div class="code"><div class="hd"><span>HTML + js/i18n.js</span><button type="button" data-copy>คัดลอก</button></div><pre>&lt;button data-th=<span class="s">"แสดงช่วงนี้"</span> data-en=<span class="s">"Show range"</span>&gt;แสดงช่วงนี้&lt;/button&gt;
+
+<span class="k">export function</span> t(message, params = {}) {
+  <span class="k">const</span> text = message[current] ?? message.en;
+  <span class="k">return</span> text.replace(<span class="s">/\{(\w+)\}/g</span>, (_, k) =&gt; (params[k] ?? <span class="s">""</span>));
+}
+<span class="c">// ใช้: t({ th: "{n} วันล่าสุด", en: "Last {n} days" }, { n: 7 })</span></pre></div>
+<p>เปลี่ยนภาษาแล้ว <code>onLanguageChange(fn)</code> แจ้งทุกโมดูลให้วาดข้อความของตัวเองใหม่ (ตาราง ป้ายกราฟ ฯลฯ) ภาษาที่เลือกจำใน localStorage <code>lang</code></p>
+
+<h3>4.2 โหมดสว่าง / มืด</h3>
+<ul>
+<li>สีทั้งหมดเป็นตัวแปรใน <code>:root</code> ของ <code>style.css</code> โหมดมืดอยู่ใต้ <code>:root[data-theme="dark"]</code></li>
+<li>ทุกหน้ามีสคริปต์เล็กใน <code>&lt;head&gt;</code> ตั้ง <code>data-theme</code> <b>ก่อนวาดหน้า</b> กันหน้าจอกระพริบขาว เป็นข้อยกเว้นเดียวที่โค้ดซ้ำกันได้</li>
+<li>สลับโหมดแล้วกราฟถูกสร้างใหม่ (canvas ไม่อ่าน CSS เอง) โดยคงช่วง zoom เดิม</li>
+<li><b>สีเส้นกราฟใช้ชุดเดียวทั้ง 2 โหมด</b> ยกเว้น <code>color: "axis"</code> (Power) ที่ตามสีตัวเลขแกน เกณฑ์เลือกสี: contrast ≥ 3:1 กับทั้ง <code>#ffffff</code> และ <code>#161d27</code></li>
+</ul>
+
+<h3>4.3 ไอคอนแท็บ และลิงก์หน้าย่อย</h3>
+<p>ทุกหน้า HTML ต้องมี <code>&lt;link rel="icon"&gt;</code> 3 บรรทัด (<code>favicon.svg</code>, <code>favicon-32.png</code>, <code>apple-touch-icon.png</code>) PNG สร้างด้วย <code>python tools/make-icons.py</code> หน้าย่อยมีลิงก์ "← หน้าแรก" และคลิกโลโก้กลับหน้าแรก</p>
+</section>
+
+<div class="part">ส่วนที่ 2 · หน้าวิเคราะห์ไฟล์ Log</div>
+
+<!-- 5 -->
+<section class="ch" id="format">
+<h2><span class="num">05</span>รูปแบบไฟล์ข้อมูล</h2>
+<p class="sub">ไฟล์ <code>.log</code> <code>.txt</code> <code>.csv</code> <code>.xlsx</code> มีข้อมูลเหมือนกัน ต่างกันแค่การห่อ: metadata 1 บรรทัด + header + แถวข้อมูล</p>
+<figure><div class="scroll">
+<svg viewBox="0 0 800 230" width="800" role="img" aria-label="โครงไฟล์ log: บรรทัดแรกเป็น metadata บรรทัดสองเป็น header คั่นด้วย TAB บรรทัดถัดไปเป็นข้อมูลแถวละประมาณหนึ่งวินาที">
+<rect x="16" y="14" width="768" height="200" rx="8" fill="var(--code-bg)"/>
+<text x="34" y="44" font-size="13" class="mono" fill="var(--code-num)">1  MachineINIFile = RF55ID18.ini</text>
+<text x="34" y="74" font-size="13" class="mono" fill="var(--code-key)">2  Date    /    Time ⇥ Stock.No[2] ⇥ … ⇥ Cabin[1].airTemp.InC ⇥ … ⇥ ProTestTimer ⇥</text>
+<text x="34" y="104" font-size="13" class="mono" fill="#dbe3ee">3  7/24/2026 2:53:03 PM ⇥ 61 ⇥ … ⇥ -215 ⇥ … ⇥ 1200 ⇥</text>
+<text x="34" y="128" font-size="13" class="mono" fill="#dbe3ee">4  7/24/2026 2:53:04 PM ⇥ 61 ⇥ … ⇥ -214 ⇥ … ⇥ 1199 ⇥</text>
+<text x="34" y="152" font-size="13" class="mono" fill="#7d8ca2">   … ~190,000 แถว (~2.2 วัน) · ~88 MB · CRLF · ASCII</text>
+<text x="560" y="44" font-size="12" fill="var(--code-num)">← metadata: แสดงเป็น Model / INI</text>
+<text x="34" y="190" font-size="12" fill="#ffc46b">189 คอลัมน์ (คอลัมน์สุดท้ายว่าง เพราะมี TAB ปิดท้าย) · ค่าเป็นจำนวนเต็ม · อุณหภูมิหน่วย 0.1 °C → -215 = −21.5 °C</text>
+</svg></div></figure>
+
+<h3>5.1 ความแตกต่างของแต่ละนามสกุล</h3>
+<div class="tblw"><table>
+<tr><th>รูปแบบ</th><th>รายละเอียด</th></tr>
+<tr><td><code>.log</code> / <code>.txt</code></td><td>คั่นด้วย TAB ขึ้นบรรทัด CRLF</td></tr>
+<tr><td><code>.csv</code></td><td>ตัวคั่น <code>,</code> <code>;</code> หรือ TAB (ตรวจจาก header เอง) รองรับ <code>"..."</code> และ BOM ของ Excel</td></tr>
+<tr><td><code>.xlsx</code></td><td>ใช้ sheet แรก อ่านด้วยโค้ดเขียนเอง (zip + <code>DecompressionStream</code>) เซลล์ว่างท้ายแถวไม่ถูกเก็บ จึงเช็กจำนวนคอลัมน์ถึงคอลัมน์สุดท้ายที่ใช้เท่านั้น · บางไฟล์ (ConvertCSV) ไม่มี metadata</td></tr>
+<tr><td>CSV ดิบ ESP32</td><td>แถวแรก <code>timestamp,raw_hex</code> แถวละ frame 228 byte เป็น hex ทุก 10 นาที (บท 10)</td></tr>
+<tr><td><code>.xls</code></td><td>ไม่รองรับ แจ้งให้ Save As เป็น .xlsx / .csv</td></tr>
+</table></div>
+
+<h3>5.2 คอลัมน์เวลาและรูปแบบวันที่</h3>
+<p>คอลัมน์เวลาชื่อมีช่องว่างหลายตัว (<code>Date    /    Time </code>) จึงเทียบแบบตัดช่องว่างและไม่สนตัวพิมพ์ ชื่อที่รองรับอยู่ใน <code>TIME_COLUMN_NAMES</code> เจอชื่อใหม่ให้เพิ่มที่นี่ที่เดียว</p>
+<div class="tblw"><table>
+<tr><th>ตัวอย่าง</th><th>รูปแบบ</th><th>ที่มา</th></tr>
+<tr><td><code>7/24/2026 2:53:03 PM</code></td><td>M/D/YYYY h:mm:ss AM/PM</td><td>log 1 วินาที</td></tr>
+<tr><td><code>16/09/2026 00:00:29</code></td><td>DD/MM/YYYY HH:mm:ss</td><td>DataLogger WLAN</td></tr>
+<tr><td><code>2026-09-16 00:00:29</code></td><td>ISO</td><td>CSV ที่ export ใหม่ / ESP32</td></tr>
+<tr><td><code>46281.0003</code></td><td>เลขวันที่ของ Excel</td><td>.xlsx</td></tr>
+<tr><td><code>7/23/2026</code></td><td>มีแค่วันที่ = เที่ยงคืนพอดี → 00:00:00</td><td>log 1 วินาที</td></tr>
+</table></div>
+<div class="note warn"><b class="t">ห้ามใช้ new Date(string)</b>แต่ละ browser ตีความรูปแบบ US ไม่เหมือนกัน parse วันที่ด้วย regex เอง (<code>parseDateParts()</code>) วัน/เดือนสลับกันได้ จึงตัดสินจากข้อมูลทั้งไฟล์: ตัวเลขแรก &gt; 12 = D/M, ตัวที่สอง &gt; 12 = M/D, ตัดสินไม่ได้ → มี AM/PM = M/D, 24 ชม. = D/M</div>
+<p>เวลาในไฟล์ไม่มี timezone ถือเป็นเวลาไทย (<code>FILE_TIME_ZONE = "Asia/Bangkok"</code>) และเวลาซ้ำกันได้ (~8% ของแถว) ไม่ถือเป็น error</p>
+</section>
+
+<!-- 6 -->
+<section class="ch" id="flow">
+<h2><span class="num">06</span>เส้นทางข้อมูล: จากเลือกไฟล์ถึงกราฟ</h2>
+<p class="sub">ภาพรวมของทั้งหน้า analyze ในรูปเดียว แต่ละกล่องมีบทของตัวเองต่อจากนี้</p>
+<figure><div class="scroll">
+<svg viewBox="0 0 820 380" width="820" role="img" aria-label="ผู้ใช้เลือกไฟล์ main.js สร้าง worker ส่งไฟล์ worker อ่านผ่าน sources.js ส่ง progress และ result กลับ main.js สร้างรายการ ตาราง และกราฟ ผู้ใช้โต้ตอบแล้วตารางอัปเดต">
+<defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+<rect x="16" y="20" width="150" height="54" rx="8" fill="var(--surface)" stroke="var(--line2)" stroke-width="2"/>
+<text x="91" y="43" font-size="13" text-anchor="middle" font-weight="700">ผู้ใช้</text><text x="91" y="61" font-size="11" text-anchor="middle">เลือก / ลากไฟล์มาวาง</text>
+<line x1="166" y1="47" x2="204" y2="47" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+<rect x="206" y="20" width="180" height="54" rx="8" fill="var(--l-page-bg)" stroke="var(--l-page)" stroke-width="2"/>
+<text x="296" y="43" font-size="13" text-anchor="middle" class="mono">loadFile()</text><text x="296" y="61" font-size="11" text-anchor="middle">main.js · loadToken++</text>
+<line x1="386" y1="47" x2="460" y2="47" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+<text x="423" y="38" font-size="10.5" text-anchor="middle" class="mono">{file,name}</text>
+<rect x="462" y="20" width="200" height="120" rx="8" fill="var(--l-wrk-bg)" stroke="var(--l-wrk)" stroke-width="2"/>
+<text x="562" y="43" font-size="13" text-anchor="middle" font-weight="700" fill="var(--l-wrk)">parser.worker.js</text>
+<text x="478" y="66" font-size="11.5" class="mono">readRecords → sources.js</text>
+<text x="478" y="86" font-size="11.5" class="mono">onRecord(fields, lineNo)</text>
+<text x="478" y="106" font-size="11.5" class="mono">buildColumnMap · processRow</text>
+<text x="478" y="126" font-size="11.5" class="mono">finish() → result</text>
+<rect x="690" y="20" width="114" height="54" rx="8" fill="var(--surface)" stroke="var(--line2)" stroke-width="2"/>
+<text x="747" y="43" font-size="12" text-anchor="middle" class="mono">file.stream()</text><text x="747" y="61" font-size="11" text-anchor="middle">ไฟล์ในเครื่อง</text>
+<line x1="688" y1="47" x2="664" y2="47" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+<path d="M462 120 L320 120 L320 76" fill="none" stroke="var(--l-wrk)" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#a2)"/>
+<text x="330" y="112" font-size="11" fill="var(--l-wrk)">progress → แถบความคืบหน้า</text>
+<path d="M562 140 L562 186 L300 186" fill="none" stroke="var(--l-wrk)" stroke-width="2.4" marker-end="url(#a2)"/>
+<text x="572" y="170" font-size="11" fill="var(--l-wrk)">done: result (transfer typed array)</text>
+<rect x="100" y="166" width="198" height="40" rx="8" fill="var(--l-page-bg)" stroke="var(--l-page)" stroke-width="2"/>
+<text x="199" y="191" font-size="13" text-anchor="middle" class="mono">onParsed()</text>
+<line x1="199" y1="206" x2="199" y2="232" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+<rect x="100" y="234" width="198" height="40" rx="8" fill="var(--l-page-bg)" stroke="var(--l-page)" stroke-width="2"/>
+<text x="199" y="259" font-size="13" text-anchor="middle" class="mono">buildItems()</text>
+<line x1="298" y1="254" x2="356" y2="226" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+<line x1="298" y1="254" x2="356" y2="284" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+<line x1="298" y1="254" x2="356" y2="340" stroke="currentColor" stroke-width="2" marker-end="url(#a2)"/>
+<rect x="358" y="206" width="190" height="38" rx="8" fill="var(--l-page-bg)" stroke="var(--l-page)" stroke-width="2"/>
+<text x="453" y="230" font-size="12.5" text-anchor="middle" class="mono">renderFileInfo()</text>
+<rect x="358" y="264" width="190" height="38" rx="8" fill="var(--l-page-bg)" stroke="var(--l-page)" stroke-width="2"/>
+<text x="453" y="288" font-size="12.5" text-anchor="middle" class="mono">renderStatsTable()</text>
+<rect x="358" y="322" width="190" height="38" rx="8" fill="var(--l-page-bg)" stroke="var(--l-page)" stroke-width="2"/>
+<text x="453" y="346" font-size="12.5" text-anchor="middle" class="mono">buildChart() · uPlot</text>
+<path d="M548 341 L640 341 L640 300" fill="none" stroke="var(--amber)" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#a2)"/>
+<rect x="590" y="236" width="214" height="62" rx="8" fill="var(--surface)" stroke="var(--amber)" stroke-width="2"/>
+<text x="697" y="258" font-size="12" text-anchor="middle">zoom · เลือกช่วง · ชี้เคอร์เซอร์</text>
+<text x="697" y="278" font-size="11.5" text-anchor="middle" class="mono">onRange / onSelect / onCursor</text>
+<path d="M590 268 L552 283" fill="none" stroke="var(--amber)" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#a2)"/>
+<text x="594" y="320" font-size="11" fill="var(--amber)">updateStats · updateCursor</text>
+</svg></div>
+<figcaption>ไฟล์ไม่เคยออกจากเครื่อง: worker ได้ File object (ตัวชี้ไปที่ไฟล์ในเครื่อง) ไม่ใช่สำเนาที่ upload ผลลัพธ์กลับมาเป็น typed array ที่ <b>transfer</b> (ย้ายความเป็นเจ้าของ ไม่ copy) จึงเร็ว</figcaption></figure>
+
+<h3>6.1 loadFile() ของจริง</h3>
+<div class="code"><div class="hd"><span>js/main.js · loadFile</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="k">export function</span> loadFile(file, fileName = file.name, options = {}) {
+  <span class="k">const</span> keep = options.keepView &amp;&amp; loaded &amp;&amp; chart ? captureView() : <span class="k">null</span>;
+  loadToken++;                         <span class="c">// ผลของไฟล์เก่าที่ยังทำไม่เสร็จจะถูกทิ้ง</span>
+  openedFile = file;                   <span class="c">// เก็บไว้ให้ Real data อ่านซ้ำ</span>
+  <span class="k">if</span> (worker) worker.terminate();
+  ...
+  worker = <span class="k">new</span> Worker(<span class="k">new</span> URL(<span class="s">"./parser.worker.js"</span>, <span class="k">import</span>.meta.url), { type: <span class="s">"module"</span> });
+  worker.onmessage = ({ data }) =&gt; {
+    <span class="k">if</span> (data.type === <span class="s">"progress"</span>) { <span class="k">if</span> (!keep) showProgress(data.loaded / data.total * <span class="n">100</span>); }
+    <span class="k">else if</span> (data.type === <span class="s">"done"</span>) onParsed(fileName, data.result, notes, keep, options.range);
+    <span class="k">else if</span> (data.type === <span class="s">"error"</span>) onParseError(data.code, data.params);
+  };
+  worker.postMessage({ file, name: fileName });
+}</pre></div>
+<p><code>options.keepView</code> ใช้ในโหมด device: ข้อมูลใหม่มาทุก 1 นาที โหลดใหม่แต่คงช่วงที่ซูม ช่วงที่เลือก โน้ต และเส้นที่ปิดไว้ · <code>options.range</code> = เปิดมาแล้วซูมไปช่วงนี้ทันที</p>
+
+<h3>6.2 ข้อความระหว่างหน้าเว็บกับ Worker</h3>
+<div class="tblw"><table>
+<tr><th>ข้อความ</th><th>ทิศ</th><th>ความหมาย</th></tr>
+<tr><td><code>{ file, name }</code></td><td>หน้าเว็บ → Worker</td><td>อ่านไฟล์ทั้งไฟล์</td></tr>
+<tr><td><code>{ type: "extract", … }</code></td><td>หน้าเว็บ → Worker</td><td>อ่านไฟล์เดิมซ้ำเฉพาะช่วงเวลา สำหรับ Real data</td></tr>
+<tr><td><code>{ type: "progress", loaded, total }</code></td><td>Worker → หน้าเว็บ</td><td>อัปเดตแถบความคืบหน้า</td></tr>
+<tr><td><code>{ type: "done", result }</code></td><td>Worker → หน้าเว็บ</td><td>อ่านเสร็จ</td></tr>
+<tr><td><code>{ type: "error", code, params }</code></td><td>Worker → หน้าเว็บ</td><td>ไฟล์ผิดรูปแบบ หน้าเว็บแปลง <code>code</code> เป็นข้อความ TH/EN จาก <code>MSG</code></td></tr>
+</table></div>
+
+<h3>6.3 หน้าตาของ result</h3>
+<div class="code"><div class="hd"><span>ผลที่ worker ส่งกลับ</span><button type="button" data-copy>คัดลอก</button></div><pre>{
+  ini, metadataMissing,
+  times,          <span class="c">// Float64Array — epoch seconds (เวลาไทยตามไฟล์)</span>
+  series: [{ key, values <span class="c">/* Float32Array °C, NaN = ไม่วาด */</span>, allZero }],
+  status: { [key]: Float32Array },     <span class="c">// ค่าของ STATUS_ITEMS ที่มีในไฟล์</span>
+  gapRows,        <span class="c">// แถวที่แทรกตรงช่วงขาด: 1/2 = ไฟดับ, 3/4 = ข้อมูลหาย</span>
+  softwareChanges: [{ index, time, label }],
+  workModeChanges: [{ index, time, value }],
+  missing: [<span class="s">"ชื่อคอลัมน์ที่ไม่มี"</span>],
+  sampling, gapThreshold, dateOrder,
+  rowCount, duplicateCount, skippedCount, skippedSamples: [{ line, reason, detail }],
+}</pre></div>
+
+<h3>6.4 งานหลังอ่านไฟล์แบ่งเป็นหลาย task</h3>
+<p><code>onParsed()</code> ไม่ทำทุกอย่างรวดเดียว แบ่งเป็น เตรียมข้อมูล → ตาราง → กราฟ โดยคืนจังหวะให้ browser ระหว่างขั้น เกณฑ์คือไฟล์ ~80 MB หน้าเว็บค้างต่อเนื่องไม่เกิน ~200 ms ทุกขั้นเช็ก <code>loadToken</code> ถ้าผู้ใช้เปิดไฟล์ใหม่ระหว่างนั้นจะหยุดทันที</p>
+</section>
+
+<!-- 7 -->
+<section class="ch" id="stream">
+<h2><span class="num">07</span>อ่านไฟล์แบบ stream (<code>sources.js</code>)</h2>
+<p class="sub">ไฟล์ 100 MB อ่านทั้งก้อนด้วย <code>file.text()</code> แล้ว <code>split</code> จะกิน memory หลายเท่าของขนาดไฟล์ จึงอ่านทีละส่วนแล้วตัดทีละบรรทัด</p>
+<div class="code"><div class="hd"><span>js/sources.js · readTextRecords</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="k">export async function</span> readTextRecords(file, onRecord, onProgress) {
+  <span class="k">const</span> reader = file.stream().getReader();
+  <span class="k">const</span> decoder = <span class="k">new</span> TextDecoder(<span class="s">"utf-8"</span>);
+  <span class="k">let</span> leftover = <span class="s">""</span>;      <span class="c">// เศษบรรทัดที่ถูกตัดกลางระหว่าง chunk</span>
+  <span class="k">let</span> lineNo = <span class="n">0</span>, delimiter = <span class="k">null</span>;
+
+  <span class="k">const</span> handleLine = (raw) =&gt; {
+    lineNo++;
+    <span class="k">let</span> line = raw.endsWith(<span class="s">"\r"</span>) ? raw.slice(<span class="n">0</span>, -<span class="n">1</span>) : raw;     <span class="c">// CRLF</span>
+    <span class="k">if</span> (lineNo === <span class="n">1</span> &amp;&amp; line.charCodeAt(<span class="n">0</span>) === <span class="n">0xfeff</span>) line = line.slice(<span class="n">1</span>); <span class="c">// BOM จาก Excel</span>
+    <span class="k">if</span> (!delimiter) delimiter = detectDelimiter(line);           <span class="c">// TAB / , / ; ที่พบมากที่สุด</span>
+    <span class="k">const</span> fields = !delimiter ? [line]
+      : delimiter === <span class="s">"\t"</span> ? line.split(<span class="s">"\t"</span>)
+      : splitCsvLine(line, delimiter);                           <span class="c">// รองรับ "a,b" และ ""</span>
+    onRecord(fields, lineNo);
+  };
+  <span class="c">// วน reader.read() → decoder.decode(chunk, {stream:true}) → ตัดด้วย "\n" → handleLine</span>
+}</pre></div>
+<h3>7.1 .xlsx โดยไม่ใช้ library</h3>
+<ol class="steps">
+<li>อ่าน "central directory" ท้ายไฟล์ zip เพื่อหาตำแหน่งของ <code>xl/worksheets/sheet1.xml</code> และ <code>xl/sharedStrings.xml</code></li>
+<li>คลายการบีบอัดด้วย <code>DecompressionStream("deflate-raw")</code> ของ browser เป็น stream ทีละส่วน</li>
+<li>แยก <code>&lt;row&gt;</code> / <code>&lt;c r="B3"&gt;</code> ด้วย regex (Worker ไม่มี DOM) แล้วเติมช่องว่างที่ xlsx ไม่เก็บตามตัวอักษรคอลัมน์</li>
+<li>เรียก <code>onRecord(fields, lineNo)</code> แบบเดียวกับไฟล์ข้อความ ส่วนที่เหลือไม่ต้องรู้ว่าไฟล์เป็นแบบไหน</li>
+</ol>
+<div class="note"><b class="t">ทำไมแยกแบบนี้</b>ทุกรูปแบบไฟล์ถูกแปลงเป็น "แถวของข้อความ" ก่อน parser จึงมีโค้ดเดียวสำหรับทุกรูปแบบ เพิ่มรูปแบบไฟล์ใหม่ = เขียนตัวอ่านใหม่ใน <code>sources.js</code> อย่างเดียว</div>
+</section>
+
+<!-- 8 -->
+<section class="ch" id="parser">
+<h2><span class="num">08</span>Parser ใน Worker (<code>parser.worker.js</code>)</h2>
+<p class="sub">ทุกแถวผ่าน <code>onRecord</code> ตัวเดียว ซึ่งรู้ว่าตอนนี้กำลังอ่าน metadata, header หรือข้อมูล</p>
+<figure><div class="scroll">
+<svg viewBox="0 0 800 250" width="800" role="img" aria-label="แถวแรก metadata แถวสอง header สร้าง column map แถวข้อมูลรอตัดสินลำดับวันที่ แล้ว processRow เก็บลง GrowableArray จบด้วย finish">
+<defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+<g font-size="12.5">
+<rect x="16" y="20" width="170" height="64" rx="8" fill="var(--l-wrk-bg)" stroke="var(--l-wrk)" stroke-width="2"/>
+<text x="101" y="44" text-anchor="middle" font-weight="700">แถวแรก</text><text x="101" y="64" text-anchor="middle" class="mono" font-size="11">parseMetadata()</text>
+<rect x="216" y="20" width="170" height="64" rx="8" fill="var(--l-wrk-bg)" stroke="var(--l-wrk)" stroke-width="2"/>
+<text x="301" y="44" text-anchor="middle" font-weight="700">header</text><text x="301" y="64" text-anchor="middle" class="mono" font-size="11">buildColumnMap()</text>
+<rect x="416" y="20" width="170" height="64" rx="8" fill="var(--l-wrk-bg)" stroke="var(--l-wrk)" stroke-width="2"/>
+<text x="501" y="44" text-anchor="middle" font-weight="700">แถวข้อมูล</text><text x="501" y="64" text-anchor="middle" class="mono" font-size="11">D/M หรือ M/D?</text>
+<rect x="616" y="20" width="170" height="64" rx="8" fill="var(--l-wrk-bg)" stroke="var(--l-wrk)" stroke-width="2"/>
+<text x="701" y="44" text-anchor="middle" font-weight="700">processRow()</text><text x="701" y="64" text-anchor="middle" class="mono" font-size="11">→ GrowableArray</text>
+<line x1="186" y1="52" x2="214" y2="52" stroke="currentColor" stroke-width="2" marker-end="url(#a3)"/>
+<line x1="386" y1="52" x2="414" y2="52" stroke="currentColor" stroke-width="2" marker-end="url(#a3)"/>
+<line x1="586" y1="52" x2="614" y2="52" stroke="currentColor" stroke-width="2" marker-end="url(#a3)"/>
+<text x="16" y="112" fill="var(--muted)" font-size="11.5">ไม่มี metadata (บรรทัดแรกมีคอลัมน์เวลา)</text>
+<text x="16" y="128" fill="var(--muted)" font-size="11.5">→ อ่านต่อ + เตือน, Model = "–"</text>
+<text x="216" y="112" fill="var(--muted)" font-size="11.5">หาทุกคอลัมน์ด้วยชื่อ</text>
+<text x="216" y="128" fill="var(--muted)" font-size="11.5">ไม่เจอ → ใส่ missing ไม่หยุด</text>
+<text x="416" y="112" fill="var(--muted)" font-size="11.5">ยังตัดสินไม่ได้ → เก็บรอ</text>
+<text x="416" y="128" fill="var(--muted)" font-size="11.5">สูงสุด 5,000 แถว</text>
+<text x="616" y="112" fill="var(--muted)" font-size="11.5">แถวเสีย → ข้าม + นับ</text>
+<text x="616" y="128" fill="var(--muted)" font-size="11.5">+ จำเลขบรรทัด</text>
+<rect x="216" y="160" width="370" height="64" rx="8" fill="var(--surface)" stroke="var(--l-wrk)" stroke-width="2"/>
+<text x="401" y="184" text-anchor="middle" font-weight="700" class="mono">finish()</text>
+<text x="401" y="206" text-anchor="middle" font-size="11.5">sampling = median ระยะห่าง · แทรกช่วงขาด · ส่ง result</text>
+<path d="M701 84 L701 192 L588 192" fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a3)"/>
+<text x="712" y="150" font-size="11">จบไฟล์</text>
+</g></svg></div></figure>
+
+<h3>8.1 หาคอลัมน์ด้วยชื่อเสมอ</h3>
+<div class="code"><div class="hd"><span>js/parser.worker.js · buildColumnMap (ย่อ)</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="k">function</span> buildColumnMap(names, lineNo) {
+  <span class="k">let</span> timeIdx = findTimeColumn(names);
+  <span class="k">if</span> (timeIdx &lt; <span class="n">0</span>) <span class="k">throw new</span> ParseError(<span class="s">"noTimeColumn"</span>, { line: lineNo });
+
+  <span class="k">const</span> sensors = [], missing = [];
+  <span class="k">for</span> (<span class="k">const</span> s <span class="k">of</span> SENSORS) {
+    <span class="k">const</span> idx = findColumn(names, s.column);
+    <span class="k">if</span> (idx &lt; <span class="n">0</span>) { missing.push(s.column); <span class="k">continue</span>; }
+    sensors.push({ ...s, idx, errIdx: findColumn(names, s.err) });
+  }
+  <span class="c">// สถานะ: ลองชื่อหลัก แล้วชื่อสำรอง (aliases) — ไม่มีก็ข้ามได้</span>
+  <span class="k">for</span> (<span class="k">const</span> item <span class="k">of</span> STATUS_ITEMS) {
+    <span class="k">const</span> idx = [item.column, ...(item.aliases || [])]
+      .map((n) =&gt; findColumn(names, n)).find((i) =&gt; i &gt;= <span class="n">0</span>) ?? -<span class="n">1</span>;
+    ...
+  }
+}</pre></div>
+<div class="note warn"><b class="t">ห้าม hard-code index</b>firmware / INI ต่างรุ่นมีจำนวนคอลัมน์ไม่เท่ากัน คอลัมน์ที่ 112 ในไฟล์หนึ่งอาจเป็นคนละค่าในอีกไฟล์ การหาด้วยชื่อทำให้ไฟล์ที่ไม่มีคอลัมน์บางตัวยังเปิดได้ แค่รายการนั้นขึ้น "ไม่มีคอลัมน์ในไฟล์"</div>
+
+<h3>8.2 processRow() ทำอะไรกับแต่ละแถว</h3>
+<ol class="steps">
+<li>คอลัมน์ไม่ครบถึงคอลัมน์ที่ใช้ → <b>ข้ามแถว</b> นับจำนวน และจำเลขบรรทัดไว้แจ้งผู้ใช้ (ไม่หยุดทั้งไฟล์)</li>
+<li>วันที่ผิดรูปแบบ หรือเวลาย้อนกลับ → ข้ามแถว (เวลาซ้ำ = ปกติ ไม่ข้าม)</li>
+<li>เซนเซอร์: ค่า × 0.1 = °C ถ้า <code>*.Err</code> ≠ 0 เก็บเป็น <code>NaN</code> (กราฟไม่วาดจุดนั้น)</li>
+<li>สถานะ: เก็บค่าดิบ ยกเว้น <code>temp</code> (× 0.1), <code>signed8</code> (234 → −22), state ของ heater (→ None / Off / On)</li>
+<li>เวอร์ชันซอฟต์แวร์ / WorkMode เปลี่ยนจากแถวก่อน → จดจุดใน <code>softwareChanges</code> / <code>workModeChanges</code></li>
+<li>เก็บลง <code>GrowableArray</code>: Float64Array สำหรับเวลา, Float32Array สำหรับค่า ขยายทีละ 2 เท่าเมื่อเต็ม</li>
+</ol>
+<h3>8.3 ทำไมใช้ typed array</h3>
+<p>190,000 แถว × ~60 ค่า ถ้าเก็บเป็น Array ของ object จะใช้ memory หลายร้อย MB และช้า Float32Array ใช้ 4 byte ต่อค่า ต่อกันในหน่วยความจำ และส่งข้าม thread ด้วย transfer ได้โดยไม่ต้อง copy</p>
+<h3>8.4 เวอร์ชันซอฟต์แวร์</h3>
+<p>รวมจาก <code>Stock.No[2]</code> <code>[1]</code> <code>[0]</code> (เติม 0 เป็น 4 หลักแล้วตัด 0 ข้างหน้า) + <code>V</code> Version + <code>R</code> Revision อย่างน้อย 2 หลัก เช่น <code>61 310 3101</code> + V98 R14 → <code>6103103101-V98R14</code> · Stock.No เป็น 0 ทั้งหมด → <code>0000000000-V99R24</code></p>
+</section>
+
+<!-- 9 -->
+<section class="ch" id="gaps">
+<h2><span class="num">09</span>ช่วงข้อมูลขาด และไฟดับ</h2>
+<p class="sub">กราฟต้องไม่ลากเส้นเชื่อมค่าจริงข้ามช่วงที่ไม่มีข้อมูล และต้องบอกได้ว่าช่วงนั้นไฟดับหรือแค่ข้อมูลไม่มา</p>
+<h3>9.1 Sampling อัตโนมัติ</h3>
+<p>ไม่มีเกณฑ์ตายตัว เพราะ log ปกติบันทึก ~1 วินาที, DataLogger WLAN ~30–90 วินาที, ESP32 ทุก 10 นาที เว็บหา sampling เอง = <b>median ของระยะห่างระหว่างแถว</b> (ไม่นับเวลาซ้ำ) และช่วงที่ห่างเกิน <code>GAP_MEDIAN_FACTOR</code> (3) × sampling = ช่วงขาด</p>
+<h3>9.2 ไฟดับ หรือข้อมูลหาย: ดูจากตัวนับ ProTestTimer</h3>
+<p><code>ProTestTimer</code> นับขึ้นเป็นนาทีตั้งแต่เปิดเครื่อง ถ้าข้ามช่วงขาดแล้วตัวนับเพิ่มเท่ากับเวลาที่ผ่านไป = ตู้ทำงานตลอด แค่ข้อมูลไม่มา ถ้าตัวนับ reset หรือเพิ่มน้อยกว่า 90% = ไฟดับ</p>
+<figure><div class="scroll">
+<svg viewBox="0 0 800 220" width="800" role="img" aria-label="ตัวอย่างตัวนับก่อนและหลังช่วงขาด: ตัวนับเพิ่มตามเวลาคือข้อมูลหาย ตัวนับกลับไปน้อยคือไฟดับ">
+<g font-size="12">
+<text x="16" y="30" font-weight="700">ช่วงขาด 60 นาที</text>
+<rect x="16" y="44" width="370" height="150" rx="10" fill="var(--surface)" stroke="#C77700" stroke-width="2"/>
+<text x="32" y="70" font-weight="700" fill="#C77700">ไม่ได้รับข้อมูล (WiFi หลุด ฯลฯ)</text>
+<text x="32" y="96" class="mono">ก่อน: ProTestTimer = 400</text>
+<text x="32" y="116" class="mono">หลัง: ProTestTimer = 460  (+60)</text>
+<text x="32" y="142">ตัวนับเพิ่มตามเวลา = ตู้ทำงานตลอด</text>
+<text x="32" y="162">Power ON ต่อเนื่อง · ชิ้นส่วน "ขาด" ไม่ลง OFF</text>
+<text x="32" y="182">ป้ายกลางช่วง "ไม่ได้รับข้อมูล" สีอำพัน</text>
+<rect x="414" y="44" width="370" height="150" rx="10" fill="var(--surface)" stroke="#E5484D" stroke-width="2"/>
+<text x="430" y="70" font-weight="700" fill="#E5484D">ไฟดับ</text>
+<text x="430" y="96" class="mono">ก่อน: ProTestTimer = 400</text>
+<text x="430" y="116" class="mono">หลัง: ProTestTimer = 12   (reset)</text>
+<text x="430" y="142">ตัวนับ reset / เพิ่ม &lt; 90% ของเวลา</text>
+<text x="430" y="162">Power OFF (Y=55) · ชิ้นส่วน OFF ที่ขอบช่วง</text>
+<text x="430" y="182">ป้ายกลางช่วง "ไฟดับ" สีแดง</text>
+</g></svg></div></figure>
+<ul>
+<li>worker แทรก 3 แถวต่อช่วง (ต้น / กลาง / ท้าย) และจดชนิดไว้ใน <code>gapRows</code> (1/2 = ไฟดับ, 3/4 = ข้อมูลหาย) จากนั้น <code>fillGaps()</code> ใน main.js เติมค่าที่วาด</li>
+<li>ทั้ง 2 แบบ: <b>เซนเซอร์เส้นขาด</b> · Control panel / Error ไม่วาด · Min/Max/เฉลี่ยไม่นับช่วงนี้ (ค่าดิบยังเป็น NaN)</li>
+<li>ตัดสินไม่ได้ (ไม่มีตัวนับ / ตัวนับไม่เดิน / ช่วงสั้นจนตัวนับควรเพิ่มไม่ถึง 2) = ถือเป็นข้อมูลหาย</li>
+<li>แถบพื้นหลังจางมาก (<code>GAP_BAND_ALPHA</code> 5%) เต็มความสูงช่วง และข้อความ <code>|&lt;-- ไฟดับ --&gt;|</code> วาดบน canvas จึงติดไปกับรูปที่บันทึก</li>
+</ul>
+<h3>9.3 Reset ของตัวนับ (<code>counterResets()</code>)</h3>
+<p>Reset = ค่าน้อยกว่าแถวก่อน (ไม่ใช่ดูค่า 0 เพราะ sampling 10 นาทีอาจไม่เห็น 0) <b>ยกเว้น</b>การนับจนเต็ม (65535 → 0) ซึ่งเป็นการนับเกิน ตัดสินจากแถวก่อนอยู่ใกล้ค่าเต็มพอจะนับเกินได้ในเวลานั้น บางไฟล์นับถอยหลัง จึงตัดสินทิศการนับจากทั้งไฟล์</p>
+<div class="note bad"><b class="t">บั๊กที่เคยเกิด (แก้ 2026-11-04)</b>ความเร็วการนับห้ามใช้ median ของ "ค่าที่เพิ่ม ÷ เวลาระหว่างแถว" เพราะ log 1 วินาทีบันทึกทุกวินาทีแต่ตัวนับเดินทีละนาที จะได้ค่าที่เร็วเกินจริง 60 เท่า แล้วช่วงข้อมูลหายถูกตัดสินเป็นไฟดับ ต้องใช้ ค่าที่เพิ่มทั้งหมด ÷ เวลาทั้งหมด (<code>counterProfile()</code>)</div>
+</section>
+
+<!-- 10 -->
+<section class="ch" id="esp">
+<h2><span class="num">10</span>ถอด CSV ดิบจาก ESP32 (<code>espdecoder.js</code>)</h2>
+<p class="sub">ESP32 Data Logger ไม่ได้ส่งชื่อคอลัมน์ ส่งแค่ frame 228 byte เป็น hex ทุก 10 นาที เว็บต้องรู้ว่า byte ไหนคือค่าอะไร</p>
+<div class="code"><div class="hd"><span>uart_log_DataLogger_DEMO01_2026-07-22.csv</span><button type="button" data-copy>คัดลอก</button></div><pre>timestamp,raw_hex
+2026-07-22 00:00:00,00 3D 01 36 0C 1D 62 0E 01 B0 04 ...  <span class="c">(228 byte)</span></pre></div>
+<p>ตารางฟิลด์อยู่ที่ <code>ESP_FIELDS</code> ที่เดียว แต่ละแถวคือ [ชื่อ, ชนิด, offset, bit] เรียงตามลำดับเดียวกับโปรแกรม PC (187 ฟิลด์)</p>
+<div class="code"><div class="hd"><span>js/espdecoder.js · ESP_FIELDS + decodeFrame</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="k">export const</span> ESP_FIELDS = [
+  [<span class="s">"Stock.No[2]"</span>,    <span class="s">"u16le"</span>, <span class="n">0</span>],
+  [<span class="s">"Stock.No[1]"</span>,    <span class="s">"u16le"</span>, <span class="n">2</span>],
+  [<span class="s">"Stock.Version"</span>,  <span class="s">"u8"</span>,    <span class="n">6</span>],
+  [<span class="s">"ProTestTimer"</span>,   <span class="s">"u16le"</span>, <span class="n">9</span>],
+  [<span class="s">"IceCream.temp.InC"</span>, <span class="s">"s16be"</span>, <span class="n">15</span>],
+  ...
+];
+
+<span class="k">export function</span> decodeFrame(b) {
+  ...
+    <span class="k">switch</span> (type) {
+      <span class="k">case</span> <span class="s">"u8"</span>:    v = b[o]; <span class="k">break</span>;
+      <span class="k">case</span> <span class="s">"s8"</span>:    v = b[o] &gt; <span class="n">127</span> ? b[o] - <span class="n">256</span> : b[o]; <span class="k">break</span>;     <span class="c">// Cabin[n].display</span>
+      <span class="k">case</span> <span class="s">"u16le"</span>: v = b[o] + b[o + <span class="n">1</span>] * <span class="n">256</span>; <span class="k">break</span>;
+      <span class="k">case</span> <span class="s">"s16be"</span>: v = b[o] * <span class="n">256</span> + b[o + <span class="n">1</span>]; <span class="k">if</span> (v &gt; <span class="n">32767</span>) v -= <span class="n">65536</span>; <span class="k">break</span>; <span class="c">// อุณหภูมิ</span>
+      <span class="k">case</span> <span class="s">"bit"</span>:   v = (b[o] &gt;&gt; bit) &amp; <span class="n">1</span>; <span class="k">break</span>;
+    }
+}</pre></div>
+<div class="tblw"><table>
+<tr><th>กฎ</th><th>เหตุผล</th></tr>
+<tr><td>ตรวจจากเนื้อไฟล์ (<code>timestamp,raw_hex</code>) ไม่ใช่ชื่อไฟล์</td><td>ผู้ใช้อาจเปลี่ยนชื่อไฟล์</td></tr>
+<tr><td>frame ไม่ครบ 228 byte / มีตัวที่ไม่ใช่ hex → <b>ข้ามแถวและแจ้งเหตุผล ห้ามเติม 0</b></td><td>เติม 0 จะได้จุด 0 °C ปลอมบนกราฟ</td></tr>
+<tr><td><code>WorkMode</code> อ่านจาก offset 226 แต่อยู่ลำดับที่ 85</td><td>ตรงกับลำดับคอลัมน์ของโปรแกรม PC</td></tr>
+<tr><td>enum 16 ฟิลด์แสดงเลขดิบ</td><td>log จริงเป็นข้อความ (<code>HA(On)</code>) ตารางแปลงผู้ใช้จะเพิ่มเอง ห้ามเดา</td></tr>
+</table></div>
+<p><code>espAdapter()</code> ใน worker แปลง frame เป็นแถวแบบ log (คอลัมน์ <code>Timestamp</code> + 187 ฟิลด์) แล้วส่งเข้า parser เดิม กราฟ ตาราง และ Real data จึงใช้ได้ทันทีโดยไม่ต้องเขียนใหม่ ตรวจแล้วผลถอดตรงกับสคริปต์อ้างอิง <code>esp_log.py</code> ทุกฟิลด์ทุกแถว</p>
+</section>
+
+<!-- 11 -->
+<section class="ch" id="items">
+<h2><span class="num">11</span>รายการในกราฟ: <code>SENSORS</code> และ <code>STATUS_ITEMS</code></h2>
+<p class="sub">1 รายการ = 1 กล่องในตาราง + 1 เส้นหรือสัญลักษณ์บนกราฟ ทุกรายการประกาศเป็นข้อมูลใน <code>logformat.js</code> ไม่ใช่โค้ดแยกต่อรายการ</p>
+<h3>11.1 เซนเซอร์อุณหภูมิ (สีและชื่อผู้ใช้กำหนด)</h3>
+<div class="tblw"><table>
+<tr><th>คอลัมน์</th><th>ชื่อที่แสดง</th><th>สี</th></tr>
+<tr><td><code>Cabin[0].airTemp.InC</code></td><td>Refrigerator sensor</td><td><span class="swatch" style="background:rgb(0,255,0)"></span>RGB(0,255,0)</td></tr>
+<tr><td><code>Cabin[0].evaTemp.InC</code></td><td>Refrigerator Evap sensor</td><td><span class="swatch" style="background:rgb(0,100,0)"></span>RGB(0,100,0)</td></tr>
+<tr><td><code>Cabin[1].airTemp.InC</code></td><td>Freezer sensor</td><td><span class="swatch" style="background:rgb(255,0,0)"></span>RGB(255,0,0)</td></tr>
+<tr><td><code>Cabin[1].evaTemp.InC</code></td><td>Freezer Evap sensor</td><td><span class="swatch" style="background:rgb(180,0,0)"></span>RGB(180,0,0)</td></tr>
+<tr><td><code>IceCream.temp.InC</code></td><td>Ambient Sensor</td><td><span class="swatch" style="background:rgb(102,0,204)"></span>RGB(102,0,204)</td></tr>
+<tr><td><code>IceMachine.temp.InC</code></td><td>Ice making sensor</td><td><span class="swatch" style="background:rgb(0,0,220)"></span>RGB(0,0,220)</td></tr>
+</table></div>
+<p>เซนเซอร์ที่เป็น 0 ทั้งไฟล์ = ไม่มีในตู้ ซ่อนเป็นค่าเริ่มต้น (ผู้ใช้เปิดเองได้) · แกน Y คงที่ −60 ถึง 60 °C ไม่ปรับตามข้อมูล</p>
+
+<h3>11.2 ชนิดของรายการ (<code>kind</code>)</h3>
+<div class="tblw"><table>
+<tr><th>kind</th><th>บนกราฟ</th><th>ช่องที่ต้องกำหนด</th><th>ตัวอย่าง</th></tr>
+<tr><td><code>"line"</code> 2 ระดับ</td><td>เส้นขั้นบันได ON/OFF</td><td><code>yWhenZero</code>, <code>yOtherwise</code></td><td>Condenser Fan Y −50 / −47</td></tr>
+<tr><td><code>"line"</code> สัดส่วน</td><td>ขั้นบันไดเทียบค่า</td><td><code>rawRange</code>, <code>yRange</code></td><td>Compressor 0–180 → Y −45…−30</td></tr>
+<tr><td><code>"marker"</code></td><td>สัญลักษณ์เล็กที่ Y คงที่</td><td><code>shape</code>, <code>y</code>, <code>drawWhen</code></td><td>High temp error กากบาท Y 53</td></tr>
+<tr><td><code>"value"</code></td><td>ไม่มี (ตัวเลขในตารางอย่างเดียว)</td><td>–</td><td>Freezer set, Door open count</td></tr>
+<tr><td><code>"hidden"</code></td><td>ไม่แสดง อ่านไว้ให้รายการอื่นใช้</td><td>–</td><td>สวิตช์ประตู R / F</td></tr>
+</table></div>
+
+<h3>11.3 ตัวอย่างของจริง</h3>
+<div class="code"><div class="hd"><span>js/logformat.js · STATUS_ITEMS</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="k">export const</span> STATUS_ITEMS = [
+  <span class="c">// System state: Cooler.state 0–20 → เส้นประขั้นบันได Y = -60 (0) ถึง -50 (20)</span>
+  { key: <span class="s">"systemState"</span>, column: <span class="s">"Cooler.state"</span>, group: <span class="s">"system"</span>, kind: <span class="s">"line"</span>,
+    color: <span class="s">"rgb(102, 102, 0)"</span>, dash: <span class="k">true</span>, th: <span class="s">"System state"</span>, en: <span class="s">"System state"</span>,
+    rawRange: [<span class="n">0</span>, <span class="n">20</span>], yRange: [-<span class="n">60</span>, -<span class="n">50</span>], display: <span class="s">"raw"</span>, noAvg: <span class="k">true</span> },
+  <span class="c">// สวิตช์ประตู — ไม่แสดงเอง ใช้นับ Door open count, aliases = ชื่อคอลัมน์อื่นที่อาจเจอ</span>
+  { key: <span class="s">"doorFc"</span>, column: <span class="s">"Cabin[0].doorSwitch0"</span>,
+    aliases: [<span class="s">"Cabin[0].components.doorSwitch[0].value"</span>], kind: <span class="s">"hidden"</span>, ... },
+  { key: <span class="s">"compressor"</span>, column: <span class="s">"Cooler.compressor"</span>, group: <span class="s">"component"</span>, kind: <span class="s">"line"</span>,
+    color: <span class="s">"rgb(255, 0, 127)"</span>, rawRange: [<span class="n">0</span>, <span class="n">180</span>], yRange: [-<span class="n">45</span>, -<span class="n">30</span>],
+    scale: <span class="n">30</span>, display: <span class="s">"scaled"</span>, th: <span class="s">"Compressor"</span>, en: <span class="s">"Compressor"</span> },
+  ...
+];</pre></div>
+
+<h3>11.4 ช่องที่ใช้บ่อย</h3>
+<dl class="kv">
+<dt>group</dt><dd>หัวข้อในตาราง: <code>component</code> <code>heater</code> <code>system</code> <code>temp</code> <code>control</code> <code>error</code> <code>other</code> (ไม่ระบุ = sensor)</dd>
+<dt>display</dt><dd>วิธีแสดง "ค่า ณ เคอร์เซอร์": <code>onOff</code> <code>raw</code> <code>temp</code> <code>scaled</code> <code>error</code> <code>valve</code> <code>damper</code> <code>heater</code> …</dd>
+<dt>defaultOff</dt><dd>ไม่ติ๊กเป็นค่าเริ่มต้น (เช่น ค่าตัด/ต่ออุณหภูมิทั้ง 8 เส้น)</dd>
+<dt>requires / absentWith / allZeroMeansAbsent</dt><dd>กฎ "ไม่มีชิ้นส่วนนี้ในตู้" → checkbox ว่าง + N/A เช่น ไม่มี Ice maker → Ice making mode, First ice; มี Refrigerator Evap → ใช้ Valve ไม่ใช่ Damper</dd>
+<dt>temp / signed8 / scale</dt><dd>แปลงค่า: × 0.1 °C / 234 → −22 / คูณค่า</dd>
+<dt>dash / behind</dt><dd>เส้นประ / วาดก่อนเส้นอื่น (อยู่หลังสุด)</dd>
+</dl>
+<h3>11.5 ตำแหน่ง Y ของ marker บนสุด (ห้ามวางทับกัน)</h3>
+<div class="tblw"><table>
+<tr><th>Y</th><th>59</th><th>55 / 57</th><th>53</th><th>51</th><th>49</th><th>47</th><th>45</th></tr>
+<tr><td>รายการ</td><td>Software / Work mode change</td><td>Power</td><td>Error ทุกตัว</td><td>Key lock</td><td>ECO / Ice making</td><td>First ice</td><td>Shabbat</td></tr>
+</table></div>
+<p><code>buildItems(result)</code> ใน main.js แปลง result + รายการเหล่านี้เป็นรายการที่พร้อมวาด: ตัดสินว่าชิ้นส่วนไม่มีในตู้, คำนวณ duty ของ heater (sampling ≤ 1 วินาที), หาจุด reset ของ Power และแปลงค่าเป็นตำแหน่ง Y ด้วย <code>toStepValues()</code></p>
+</section>
+
+<!-- 12 -->
+<section class="ch" id="chart">
+<h2><span class="num">12</span>กราฟด้วย uPlot (<code>chart.js</code>)</h2>
+<p class="sub">uPlot วาดหลายแสนจุดได้เร็วมากเพราะวาดลง canvas โดยตรง และเปิดให้เขียน plugin เองได้ทุกส่วน</p>
+<div class="cols">
+<div class="card page"><h4>series</h4>เซนเซอร์ + เส้นขั้นบันได ข้อมูลเป็น Array ของคอลัมน์ <code>[times, v1, v2, …]</code></div>
+<div class="card page"><h4>markerLayers</h4>สัญลักษณ์ (จุด กากบาท วงกลม ขีด สามเหลี่ยม) วาดเองใน hook <code>draw</code> เว้นระยะ <code>MARKER_GAP</code></div>
+<div class="card page"><h4>plugins</h4>wheel zoom, pan คลิกขวา, ป้ายระยะเวลา, แถบช่วงขาด, ข้อความไฟดับ, จอสัมผัส, ปากกา</div>
+</div>
+<h3>12.1 ลำดับการวาด</h3>
+<ol class="steps">
+<li>เส้น <code>behind</code> (ค่าตัด/ต่ออุณหภูมิ เส้นประบาง width 1) วาดก่อนทั้งหมด</li>
+<li>เซนเซอร์และเส้นขั้นบันได</li>
+<li>แถบพื้นหลังช่วงขาด (<code>drawGapBands()</code>) และสัญลักษณ์ (<code>drawMarkerLayer()</code>)</li>
+<li>ข้อความกลางช่วง <code>drawGapLabels()</code>, ป้ายช่วงที่เลือก, โน้ต</li>
+</ol>
+<h3>12.2 ประสิทธิภาพ (มีเส้นขั้นบันไดหลายสิบเส้น × หลายแสนจุด)</h3>
+<div class="tblw"><table>
+<tr><th>เทคนิค</th><th>เหตุผล</th></tr>
+<tr><td>จุด &gt; 1 ต่อ pixel ใช้ <code>paths.linear</code> ซูมเข้าค่อยใช้ <code>paths.stepped</code></td><td>stepped ช้ากว่า ~15 เท่า และตอนซูมออกมองไม่เห็นความต่าง</td></tr>
+<tr><td>แปลง typed array → Array ด้วย loop ธรรมดา</td><td><code>Array.from(arr, fn)</code> ช้ากว่า ~6 เท่า</td></tr>
+<tr><td>สลับภาษา / โหมด / สีเส้น → สร้างกราฟใหม่แต่คงช่วงที่แสดง</td><td>canvas ไม่เปลี่ยนสีตาม CSS เอง</td></tr>
+<tr><td>ช่วงที่เลือก / โน้ต ผูกกับเวลา ไม่ใช่ pixel</td><td>zoom / resize แล้วกรอบอยู่ที่ข้อมูลเดิม</td></tr>
+</table></div>
+<h3>12.3 ผู้ดูเปลี่ยนสีเองได้</h3>
+<p>กดที่ภาพลักษณะหน้าชื่อรายการ เปิดกล่องเลือกสีของเว็บ (ไม่ใช้ <code>&lt;input type="color"&gt;</code> เพราะบน Windows บางเครื่องเปิดหน้าต่างกลางจอ ปิดยาก) คลิก/ลาก = ลองสี, ดับเบิลคลิก = เลือกแล้วปิด สีจำใน localStorage <code>seriesColors</code> เฉพาะเครื่องนั้น ค่าเริ่มต้นยังเป็นสีในตาราง โค้ด: <code>colorOf()</code> <code>openColorPopover()</code> <code>setItemColor()</code></p>
+</section>
+
+<!-- 13 -->
+<section class="ch" id="input">
+<h2><span class="num">13</span>การใช้เมาส์ นิ้ว และปากกา</h2>
+<p class="sub">กำหนดแล้ว ห้ามเปลี่ยนโดยไม่ถามผู้ใช้ เหตุผลหลัก: คลิกซ้ายลากง่ายเกินไป ไม่ควร zoom โดยไม่ตั้งใจ จึงให้ลากซ้าย = เลือกช่วงเท่านั้น</p>
+<div class="tblw"><table>
+<tr><th>เมาส์</th><th>นิ้ว</th><th>ผล</th></tr>
+<tr><td>หมุนลูกกลิ้ง</td><td>จีบ / ถ่าง 2 นิ้ว</td><td>zoom แกน X รอบตำแหน่ง (ไม่เกินขอบข้อมูล)</td></tr>
+<tr><td>ลากคลิกขวา</td><td>ลาก 2 นิ้ว</td><td>เลื่อนกราฟ (pan) ช่วงกว้างเท่าเดิม</td></tr>
+<tr><td>ลากคลิกซ้าย</td><td>ลาก 1 นิ้วแนวนอน</td><td>เลือกช่วง + ป้าย <code>|◀── 30 min ──▶|</code> ตารางแสดงค่าของช่วงนั้น</td></tr>
+<tr><td>คลิกซ้ายเฉยๆ</td><td>แตะ 1 ครั้ง</td><td>ยกเลิกช่วงที่เลือก (นิ้ว: เคอร์เซอร์ไปจุดนั้นด้วย)</td></tr>
+<tr><td>ดับเบิลคลิก</td><td>แตะ 2 ครั้งเร็วๆ</td><td>เปิด Real data แล้วไฮไลต์แถว ณ จุดนั้น</td></tr>
+<tr><td>ปุ่ม "ดูทั้งหมด"</td><td>–</td><td>reset zoom (ดับเบิลคลิกไม่ reset แล้ว)</td></tr>
+<tr><td>–</td><td>ลาก 1 นิ้วแนวตั้ง</td><td>เลื่อนหน้าเว็บตามปกติ (<code>touch-action: pan-y</code>)</td></tr>
+</table></div>
+<h3>13.1 ปากกา (Apple Pencil / stylus)</h3>
+<ul>
+<li>ลากทิศไหนก็ได้ = เลือกช่วงเสมอ รู้ว่าเป็นปากกาจาก <code>pointerType: "pen"</code> / <code>touchType: "stylus"</code></li>
+<li>ลอยปากกาเหนือจอ = เคอร์เซอร์ตามปลายปากกา (iPad M2 ขึ้นไป + Pencil 2 / Pro) รับ <code>pointermove</code> ทุกชนิดที่ไม่ใช่ touch และไม่ได้กด เพราะ Safari บางรุ่นรายงาน hover เป็น <code>mouse</code></li>
+<li>เปิดเว็บด้วย <code>?pentest</code> → กล่องมุมล่างซ้ายแสดงสัญญาณที่ browser ส่งมาจริง ใช้หาสาเหตุเวลา hover ไม่ทำงาน</li>
+</ul>
+<p>โค้ดทั้งหมดอยู่ใน <code>interactionPlugin</code> (เมาส์) และ <code>touchSupport()</code> (นิ้ว / ปากกา) ใน chart.js ส่งเหตุการณ์ออกไป 3 ตัว: <code>onRange(min, max)</code>, <code>onSelect(range | null)</code>, <code>onCursor(index)</code> main.js รับแล้วเรียก <code>updateStats()</code> / <code>updateCursor()</code></p>
+</section>
+
+<!-- 14 -->
+<section class="ch" id="table">
+<h2><span class="num">14</span>ตาราง Min / Max / Avg และการจัดวาง</h2>
+<p class="sub">ตารางไม่ใช่ table แต่เป็นกล่องเล็กแบบการ์ด (แบบ C ที่ผู้ใช้เลือก) แยกกล่องละหัวข้อ</p>
+<figure><div class="scroll">
+<svg viewBox="0 0 800 300" width="800" role="img" aria-label="จอแนวนอนกว้าง: ซ้ายกราฟ SENSOR SYSTEM TEMP WORK CONFIRM ขวากราฟ COMPONENT HEATER CONTROL PANEL ใต้กราฟ ERROR OTHER">
+<g font-size="12">
+<rect x="16" y="14" width="768" height="30" rx="6" fill="var(--surface2)"/><text x="30" y="34">หัวเว็บ · ไฟล์ · ช่วงเวลา</text>
+<rect x="16" y="54" width="160" height="176" rx="8" fill="var(--l-page-bg)" stroke="var(--l-page)" stroke-width="1.6"/>
+<text x="30" y="80" font-weight="700" fill="var(--l-page)">SENSOR</text><text x="30" y="128" font-weight="700" fill="var(--l-page)">SYSTEM</text><text x="30" y="176" font-weight="700" fill="var(--l-page)">TEMP WORK CONFIRM</text>
+<rect x="188" y="54" width="424" height="176" rx="8" fill="var(--surface)" stroke="var(--line2)" stroke-width="1.6"/>
+<path d="M204 190 C260 120 300 170 350 110 S450 150 500 90 S580 140 600 120" fill="none" stroke="rgb(255,0,0)" stroke-width="2"/>
+<path d="M204 150 C280 130 340 160 400 140 S520 150 600 140" fill="none" stroke="rgb(0,200,0)" stroke-width="2"/>
+<text x="400" y="216" text-anchor="middle" fill="var(--muted)">กราฟ (สูงตามพื้นที่ที่เหลือ wideChartHeight)</text>
+<rect x="624" y="54" width="160" height="176" rx="8" fill="var(--l-page-bg)" stroke="var(--l-page)" stroke-width="1.6"/>
+<text x="638" y="80" font-weight="700" fill="var(--l-page)">COMPONENT</text><text x="638" y="128" font-weight="700" fill="var(--l-page)">HEATER CONTROL</text><text x="638" y="176" font-weight="700" fill="var(--l-page)">CONTROL PANEL</text>
+<rect x="188" y="240" width="208" height="46" rx="8" fill="var(--l-page-bg)" stroke="var(--l-page)" stroke-width="1.6"/><text x="292" y="268" text-anchor="middle" font-weight="700" fill="var(--l-page)">ERROR</text>
+<rect x="404" y="240" width="208" height="46" rx="8" fill="var(--l-page-bg)" stroke="var(--l-page)" stroke-width="1.6"/><text x="508" y="268" text-anchor="middle" font-weight="700" fill="var(--l-page)">OTHER</text>
+</g></svg></div>
+<figcaption>จอแนวนอนกว้าง (≥ 1400px + landscape): ข้างละ 17 รายการ ช่องข้างกราฟกว้าง 280–305px · จอแนวตั้ง/มือถือเรียงลงมาตามลำดับ SENSOR → COMPONENT → HEATER CONTROL → SYSTEM → TEMP WORK CONFIRM → CONTROL PANEL → ERROR → OTHER ด้วย CSS <code>order</code></figcaption></figure>
+<ul>
+<li>ช่องของแต่ละหัวข้อ = <code>slot</code> ใน <code>TABLE_GROUPS</code> (main.js): <code>left</code> / <code>right</code> / <code>below</code></li>
+<li>กล่องรายการ (<code>createStatRow()</code>): บรรทัดบน checkbox + ภาพลักษณะ + ชื่อ + <b>ค่า ณ เคอร์เซอร์ตัวใหญ่</b> · บรรทัดล่าง Min · Max · เฉลี่ย · ขอบสีจางตามสีรายการ</li>
+<li>รายการในหัวข้อเรียงตามตัวอักษรของชื่อ ทุกหัวข้อมีปุ่มซ่อน/แสดง (ซ่อนในตาราง ไม่กระทบกราฟ)</li>
+<li>Min/Max/Avg ใช้ช่วงที่ลากเลือก ถ้าไม่มีใช้ช่วงที่แสดงบนกราฟ · <code>indexRange()</code> ใน stats.js หาช่วง index ด้วย binary search แล้ว <code>computeStats()</code> ข้าม NaN</li>
+</ul>
+<h3>14.1 กล่องข้อมูลไฟล์</h3>
+<p>แสดงแค่ File, Model / INI, Period, Software, Refrigerator Work Mode, Sampling (auto) · Software และ Work mode แสดง<b>ค่าล่าสุดในช่วงที่เลือก</b> (ไม่เลือก = ช่วงที่แสดง) เพราะไฟล์เดียวอาจมีหลายเวอร์ชัน</p>
+</section>
+
+<!-- 15 -->
+<section class="ch" id="extras">
+<h2><span class="num">15</span>Real data · โน้ต · Time zone</h2>
+<h3>15.1 Real data (<code>rawdata.js</code>)</h3>
+<p>ตารางค่าดิบตรงตามไฟล์ทุกคอลัมน์ของช่วงที่เลือก หน้าเว็บไม่ได้เก็บทุกคอลัมน์ไว้ (เก็บเฉพาะที่ใช้) จึง<b>สั่ง Worker อ่านไฟล์เดิมซ้ำ</b> (<code>type: "extract"</code>) เฉพาะช่วงเวลา หยุดอ่านเมื่อเลยช่วง</p>
+<ul>
+<li>virtual scrolling: วาดเฉพาะแถวที่มองเห็น เลื่อนดูได้ต่อเนื่อง สูงสุด <code>RAW_MAX_ROWS</code> 100,000 แถว</li>
+<li>ความกว้างคอลัมน์วัดจริงด้วย canvas จากชื่อหัวคอลัมน์และค่ายาวที่สุดในแถวตัวอย่าง ~2,000 แถว</li>
+<li>☆ เลือกคอลัมน์มาเทียบ (ติดคอลัมน์เวลาเสมอ), คลิกชื่อคอลัมน์ = เรียง / กรองแบบ Excel (<code>!=0</code> <code>&gt;100</code> <code>10..20</code>)</li>
+<li>Export CSV มี BOM ให้ Excel เปิดถูก ชื่อไฟล์ <code>AHTH_&lt;ชื่อไฟล์&gt;_&lt;เริ่ม&gt;_to_&lt;สิ้นสุด&gt;.csv</code></li>
+</ul>
+<h3>15.2 โน้ตบนกราฟ (<code>annotate.js</code>)</h3>
+<p>เส้นโน้ตเก็บเป็นคู่ (เวลา, ค่า Y) ไม่ใช่ pixel → zoom แล้วอยู่ที่ข้อมูลเดิม ความหนาตามแรงกดปากกา ยางลบลบทั้งเส้นที่แตะ โน้ตอยู่ในหน่วยความจำเท่านั้น หายเมื่อเปิดไฟล์ใหม่/รีเฟรช · บันทึกรูป = PNG ของกราฟ + โน้ต + บรรทัด <code>ชื่อไฟล์ · ช่วงเวลา · Software</code></p>
+<h3>15.3 Time zone</h3>
+<p>ข้อมูลภายในเป็นเวลาในไฟล์ (เวลาไทยเก็บเป็น epoch แบบ UTC) ตลอด เปลี่ยนเฉพาะเวลาที่<b>แสดง</b> ผ่าน <code>toDisplayEpoch()</code> / <code>fromDisplayEpoch()</code> ที่เดียว ช่วงที่เลือก / โน้ต / zoom จึงไม่ขยับ ช่องเลือกพิมพ์ค้นได้ (<code>new york</code>, <code>+9</code>, <code>UTC-04</code>) และจำใน localStorage <code>timeZone</code> ใช้กับทุกหน้า</p>
+<div class="code"><div class="hd"><span>หลักคิด</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="c">// ข้อมูล: times[i] = 2026-07-24 14:53:03 (เวลาไทย, เก็บแบบ UTC)</span>
+<span class="c">// แสดง: formatDateTime(toDisplayEpoch(times[i]))  → ตาม time zone ที่เลือก</span>
+<span class="c">// ผู้ใช้พิมพ์ในช่องเริ่ม: fromDisplayEpoch(ค่าที่พิมพ์)  → กลับเป็นเวลาในไฟล์</span></pre></div>
+</section>
+
+<div class="part">ส่วนที่ 3 · ระบบ Monitoring</div>
+
+<!-- 16 -->
+<section class="ch" id="mon-arch">
+<h2><span class="num">16</span>สถาปัตยกรรม Monitoring</h2>
+<p class="sub">ข้อมูลเดินทาง 5 ทอด แต่ละทอดมีหน้าที่ชัดเจน และค่าลับไม่เคยอยู่ใน repo</p>
+<figure><div class="scroll">
+<svg viewBox="0 0 820 260" width="820" role="img" aria-label="ESP32 เขียน CSV ลง Google Drive ทุก 10 นาที Apps Script อ่าน Drive Worker เรียก Apps Script ด้วยรหัสลับและตรวจสิทธิ์ผู้ใช้ เว็บเรียก Worker พร้อม token">
+<defs><marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+<g font-size="12">
+<rect x="10" y="40" width="130" height="80" rx="8" fill="var(--surface)" stroke="var(--line2)" stroke-width="2"/>
+<text x="75" y="70" text-anchor="middle" font-weight="700">ESP32</text><text x="75" y="90" text-anchor="middle" font-size="11">อ่าน UART ตู้</text><text x="75" y="106" text-anchor="middle" font-size="11">ทุก 10 นาที</text>
+<rect x="175" y="40" width="140" height="80" rx="8" fill="var(--surface)" stroke="var(--line2)" stroke-width="2"/>
+<text x="245" y="70" text-anchor="middle" font-weight="700">Google Drive</text><text x="245" y="90" text-anchor="middle" font-size="10.5" class="mono">uart_log_DataLogger_</text><text x="245" y="106" text-anchor="middle" font-size="10.5" class="mono">&lt;device&gt;_&lt;วันที่&gt;.csv</text>
+<rect x="350" y="40" width="140" height="80" rx="8" fill="var(--l-srv-bg)" stroke="var(--l-srv)" stroke-width="2"/>
+<text x="420" y="70" text-anchor="middle" font-weight="700" fill="var(--l-srv)">Apps Script</text><text x="420" y="90" text-anchor="middle" font-size="11">index · range · files</text><text x="420" y="106" text-anchor="middle" font-size="11">ส่งอีเมล OTP</text>
+<rect x="525" y="40" width="140" height="80" rx="8" fill="var(--l-srv-bg)" stroke="var(--l-srv)" stroke-width="2"/>
+<text x="595" y="70" text-anchor="middle" font-weight="700" fill="var(--l-srv)">CF Worker</text><text x="595" y="90" text-anchor="middle" font-size="11">login · ตรวจสิทธิ์</text><text x="595" y="106" text-anchor="middle" font-size="11">cache · KV USERS/labels</text>
+<rect x="700" y="40" width="110" height="80" rx="8" fill="var(--l-page-bg)" stroke="var(--l-page)" stroke-width="2"/>
+<text x="755" y="70" text-anchor="middle" font-weight="700" fill="var(--l-page)">เว็บ</text><text x="755" y="90" text-anchor="middle" font-size="11">monitor.html</text><text x="755" y="106" text-anchor="middle" font-size="11">?device=</text>
+<line x1="140" y1="80" x2="173" y2="80" stroke="currentColor" stroke-width="2" marker-end="url(#a4)"/>
+<line x1="348" y1="80" x2="317" y2="80" stroke="currentColor" stroke-width="2" marker-end="url(#a4)"/>
+<line x1="523" y1="80" x2="492" y2="80" stroke="currentColor" stroke-width="2" marker-end="url(#a4)"/>
+<line x1="698" y1="80" x2="667" y2="80" stroke="currentColor" stroke-width="2" marker-end="url(#a4)"/>
+<text x="245" y="150" text-anchor="middle" fill="var(--muted)" font-size="11">ไฟล์ใหม่ทุกวัน</text>
+<text x="420" y="150" text-anchor="middle" fill="var(--muted)" font-size="11">Script Properties:</text>
+<text x="420" y="166" text-anchor="middle" class="mono" font-size="11" fill="var(--l-srv)">SECRET · FOLDER_ID</text>
+<text x="595" y="150" text-anchor="middle" fill="var(--muted)" font-size="11">Worker secrets:</text>
+<text x="595" y="166" text-anchor="middle" class="mono" font-size="10.5" fill="var(--l-srv)">APPS_SCRIPT_KEY</text>
+<text x="595" y="182" text-anchor="middle" class="mono" font-size="10.5" fill="var(--l-srv)">SESSION_SECRET · ADMIN_EMAIL</text>
+<text x="755" y="150" text-anchor="middle" fill="var(--muted)" font-size="11">localStorage:</text>
+<text x="755" y="166" text-anchor="middle" class="mono" font-size="11" fill="var(--l-page)">ahthToken</text>
+<text x="508" y="66" text-anchor="middle" font-size="10" fill="var(--muted)">key</text>
+<text x="683" y="66" text-anchor="middle" font-size="10" fill="var(--muted)">Bearer</text>
+<rect x="350" y="206" width="460" height="40" rx="8" fill="var(--surface)" stroke="var(--bad)" stroke-width="1.6" stroke-dasharray="5 4"/>
+<text x="580" y="231" text-anchor="middle" font-size="12">ค่าลับอยู่แค่ใน Google / Cloudflare · repo มีแค่ URL ของ Worker (js/config.js)</text>
+</g></svg></div></figure>
+<div class="tblw"><table>
+<tr><th>ทอด</th><th>หน้าที่</th><th>ทำไมต้องมี</th></tr>
+<tr><td>Apps Script</td><td>อ่านรายการไฟล์ / เนื้อไฟล์จาก Drive ส่งอีเมล</td><td>เข้าถึง Drive ของผู้ใช้ได้โดยไม่ต้องเปิดโฟลเดอร์เป็นสาธารณะ</td></tr>
+<tr><td>Cloudflare Worker</td><td>login, ตรวจสิทธิ์ทุกคำขอ, cache, รวมคำขอ</td><td>Apps Script เปิดสคริปต์ช้า (~2–4 วินาที) และจำกัดงานพร้อมกัน Worker ตอบเร็วและกันไม่ให้ใครเรียก Apps Script ตรงได้</td></tr>
+<tr><td>เว็บ</td><td>แสดงผล ถอด CSV ใน browser (ใช้ parser เดิม)</td><td>ไม่ต้องเขียนกราฟใหม่สำหรับ Monitoring</td></tr>
+</table></div>
+</section>
+
+<!-- 17 -->
+<section class="ch" id="login">
+<h2><span class="num">17</span>Login ด้วยรหัสทางอีเมล และการอนุมัติ</h2>
+<p class="sub">อีเมลอะไรก็ได้ + รหัส 6 หลัก ใครก็สมัครได้ แต่แอดมินคนเดียวอนุมัติ (ผู้ใช้พิจารณาทางอื่นแล้ว ตัดสินใจคงวิธีนี้)</p>
+<figure><div class="scroll">
+<svg viewBox="0 0 800 330" width="800" role="img" aria-label="ลำดับการ login: ขอรหัส Worker ส่งอีเมลผ่าน Apps Script ผู้ใช้ใส่รหัส ได้ token ผู้ใช้ใหม่ขอสิทธิ์ แอดมินอนุมัติ">
+<defs><marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+<g font-size="12">
+<text x="90" y="24" text-anchor="middle" font-weight="700" fill="var(--l-page)">เว็บ (login-ui.js)</text>
+<text x="400" y="24" text-anchor="middle" font-weight="700" fill="var(--l-srv)">Worker</text>
+<text x="690" y="24" text-anchor="middle" font-weight="700" fill="var(--l-srv)">Apps Script / อีเมล</text>
+<line x1="90" y1="34" x2="90" y2="320" stroke="var(--line2)" stroke-width="2"/>
+<line x1="400" y1="34" x2="400" y2="320" stroke="var(--line2)" stroke-width="2"/>
+<line x1="690" y1="34" x2="690" y2="320" stroke="var(--line2)" stroke-width="2"/>
+<line x1="90" y1="60" x2="396" y2="60" stroke="currentColor" stroke-width="2" marker-end="url(#a5)"/><text x="100" y="54" class="mono" font-size="11">POST /auth/request-code {email}</text>
+<line x1="400" y1="88" x2="686" y2="88" stroke="currentColor" stroke-width="2" marker-end="url(#a5)"/><text x="410" y="82" font-size="11">สุ่มรหัส เก็บ KV 10 นาที → ส่งอีเมล</text>
+<line x1="90" y1="128" x2="396" y2="128" stroke="currentColor" stroke-width="2" marker-end="url(#a5)"/><text x="100" y="122" class="mono" font-size="11">POST /auth/verify {email, code}</text>
+<line x1="396" y1="156" x2="94" y2="156" stroke="var(--l-srv)" stroke-width="2" marker-end="url(#a5)"/><text x="104" y="150" font-size="11" fill="var(--l-srv)">token (HMAC, 30 วัน) → localStorage</text>
+<line x1="90" y1="196" x2="396" y2="196" stroke="currentColor" stroke-width="2" marker-end="url(#a5)"/><text x="100" y="190" class="mono" font-size="11">POST /auth/apply {ชื่อ แผนก เหตุผล}</text>
+<line x1="400" y1="224" x2="686" y2="224" stroke="currentColor" stroke-width="2" marker-end="url(#a5)"/><text x="410" y="218" font-size="11">สถานะ pending · อีเมลแจ้งแอดมิน</text>
+<line x1="90" y1="264" x2="396" y2="264" stroke="var(--amber)" stroke-width="2" marker-end="url(#a5)"/><text x="100" y="258" class="mono" font-size="11" fill="var(--amber)">admin.html: POST /admin/users approve</text>
+<line x1="90" y1="304" x2="396" y2="304" stroke="currentColor" stroke-width="2" marker-end="url(#a5)"/><text x="100" y="298" class="mono" font-size="11">GET /index  (Authorization: Bearer …)</text>
+<text x="410" y="304" font-size="11" fill="var(--ok)">approved → ได้ข้อมูล</text>
+</g></svg></div></figure>
+<h3>17.1 สถานะผู้ใช้</h3>
+<div class="tblw"><table>
+<tr><th>สถานะ</th><th>หมายถึง</th><th>ได้ข้อมูลไหม</th></tr>
+<tr><td><code>new</code></td><td>ยืนยันอีเมลแล้ว ยังไม่ขอสิทธิ์</td><td>ไม่</td></tr>
+<tr><td><code>pending</code></td><td>ขอสิทธิ์แล้ว รอแอดมิน</td><td>ไม่</td></tr>
+<tr><td><code>approved</code></td><td>อนุมัติแล้ว (<code>ADMIN_EMAIL</code> เป็น approved + แอดมินเสมอ)</td><td>ใช่ ทุกฟีเจอร์</td></tr>
+<tr><td><code>rejected</code> / <code>revoked</code></td><td>ปฏิเสธ / ถอนสิทธิ์ (มีผลภายใน ~1 นาที)</td><td>ไม่</td></tr>
+</table></div>
+<div class="code"><div class="hd"><span>server/worker/worker.js · ค่าความปลอดภัย</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="k">const</span> OTP_TTL_SECONDS = <span class="n">600</span>;     <span class="c">// รหัส OTP ใช้ได้ 10 นาที</span>
+<span class="k">const</span> OTP_MAX_TRIES = <span class="n">5</span>;         <span class="c">// ใส่รหัสผิดได้ 5 ครั้งต่อรหัส</span>
+<span class="k">const</span> OTP_PER_HOUR = <span class="n">5</span>;          <span class="c">// ขอรหัสได้ 5 ครั้ง/ชั่วโมง/อีเมล</span>
+<span class="k">const</span> SESSION_DAYS = <span class="n">30</span>;         <span class="c">// login ค้างได้ 30 วัน</span>
+<span class="k">const</span> USER_CACHE_SECONDS = <span class="n">60</span>;   <span class="c">// ถอนสิทธิ์มีผลภายใน ~1 นาที</span>
+...
+<span class="k">if</span> (user.status !== <span class="s">"approved"</span>) <span class="k">throw new</span> HttpError(<span class="n">403</span>, <span class="s">"not approved"</span>);</pre></div>
+<p><code>showAuthGate(container, { onApproved, requireAdmin })</code> ใน login-ui.js เป็นหน้าจอเข้าสู่ระบบตัวเดียวที่ทุกหน้าใช้ ระหว่างใช้งานถ้าได้ 401 / 403 จะลบ token แล้วโหลดหน้าใหม่ให้กลับไปหน้าเข้าสู่ระบบ การตรวจว่าเป็นแอดมินอยู่ที่ Worker เท่านั้น หน้าเว็บแค่ซ่อน/แสดงปุ่ม</p>
+</section>
+
+<!-- 18 -->
+<section class="ch" id="worker">
+<h2><span class="num">18</span>Cloudflare Worker (<code>server/worker/worker.js</code>)</h2>
+<p class="sub">ทุกคำขอผ่าน <code>fetch()</code> ตัวเดียว แยกเส้นทางด้วย "METHOD /path"</p>
+<div class="code"><div class="hd"><span>worker.js · router</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="k">export default</span> {
+  <span class="k">async</span> fetch(request, env, ctx) {
+    <span class="k">const</span> cors = corsHeaders(request.headers.get(<span class="s">"Origin"</span>));   <span class="c">// เฉพาะ GitHub Pages + localhost:8000</span>
+    <span class="k">if</span> (request.method === <span class="s">"OPTIONS"</span>) <span class="k">return new</span> Response(<span class="k">null</span>, { status: <span class="n">204</span>, headers: cors });
+    <span class="k">const</span> url = <span class="k">new</span> URL(request.url);
+    <span class="k">switch</span> (<span class="s">`${request.method} ${url.pathname}`</span>) {
+      <span class="k">case</span> <span class="s">"POST /auth/request-code"</span>: <span class="k">return await</span> requestCode(request, env, cors);
+      <span class="k">case</span> <span class="s">"POST /auth/verify"</span>:       <span class="k">return await</span> verifyCode(request, env, cors);
+      <span class="k">case</span> <span class="s">"GET /index"</span>:              <span class="k">return await</span> index(request, env, ctx, cors);
+      <span class="k">case</span> <span class="s">"GET /files"</span>:              <span class="k">return await</span> files(request, env, cors, url);
+      <span class="k">case</span> <span class="s">"GET /range"</span>:              <span class="k">return await</span> range(request, env, cors, url);
+      ...
+    }
+  },
+};</pre></div>
+<h3>18.1 เส้นทาง (API)</h3>
+<div class="tblw"><table>
+<tr><th>เส้นทาง</th><th>ทำอะไร</th><th>cache</th></tr>
+<tr><td><code>GET /auth/me</code></td><td>สถานะผู้ใช้ปัจจุบัน</td><td>60 วินาที (หน่วยความจำ)</td></tr>
+<tr><td><code>GET /index</code></td><td>รายการ device + ไฟล์ + <code>firstDate</code>/<code>lastDate</code></td><td>60 วินาที + KV + stale-while-revalidate</td></tr>
+<tr><td><code>GET /file?id=&amp;v=</code></td><td>CSV ดิบ 1 ไฟล์</td><td>ถาวร (ระบุ <code>v</code> = เวลาแก้ไข)</td></tr>
+<tr><td><code>GET /files?f=id@modified,…</code></td><td>หลายไฟล์ (≤ 40) ในคำขอเดียว → <code>{files, errors}</code></td><td>ถาวรต่อไฟล์</td></tr>
+<tr><td><code>GET /range?device=&amp;from=&amp;to=</code></td><td>ไฟล์ย้อนหลังของเครื่องเดียว ≤ 92 วัน</td><td>10 นาที</td></tr>
+<tr><td><code>GET|POST /labels</code></td><td>อ่าน / ตั้งคำอธิบายเครื่อง (ผู้ใช้ที่อนุมัติแล้วทุกคน) KV <code>labels</code> — บท 20.4</td><td>30 วินาที</td></tr>
+<tr><td><code>GET|POST /admin/users</code></td><td>approve / reject / revoke / delete</td><td>–</td></tr>
+</table></div>
+<h3>18.2 เทคนิคที่ทำให้เร็วและไม่ล่ม</h3>
+<div class="cols">
+<div class="card srv"><h4>once(): รวมคำขอ</h4>คำขอพร้อมกันหลายคนเรียก Apps Script ครั้งเดียว คนอื่นรอผลเดียวกัน <b>ต้องมีเวลาหมดเสมอ</b> (<code>SHARED_WAIT_MS</code> 28 วินาที)</div>
+<div class="card srv"><h4>stale-while-revalidate</h4>รายการเก่ากว่า 60 วินาที → ตอบรายการเดิมทันที แล้วขอใหม่เบื้องหลังด้วย <code>ctx.waitUntil</code></div>
+<div class="card srv"><h4>สำรองใน KV</h4>รายการล่าสุดเก็บ <code>cache:index</code> (เขียนไม่เกินทุก 10 นาที) Apps Script ล้มก็ยังตอบได้ + header <code>X-Index-Stale</code></div>
+<div class="card srv"><h4>Server-Timing</h4>ทุกคำตอบบอกเวลา <code>auth</code> <code>kv</code> <code>cache</code> <code>as</code> <code>gs</code> <code>total</code> เว็บใช้บอกว่าช้าที่ไหน</div>
+</div>
+<div class="code"><div class="hd"><span>worker.js · once()</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="k">function</span> once(key, fn) {
+  <span class="k">return</span> withTimeout(shared(key, fn), SHARED_WAIT_MS);
+}
+<span class="k">function</span> shared(key, fn) {
+  <span class="k">const</span> current = inflight.get(key);
+  <span class="k">if</span> (current &amp;&amp; Date.now() - current.started &lt; SHARED_WAIT_MS) <span class="k">return</span> current.promise;
+  <span class="k">const</span> entry = { started: Date.now() };
+  entry.promise = fn().finally(() =&gt; { <span class="k">if</span> (inflight.get(key) === entry) inflight.delete(key); });
+  inflight.set(key, entry);
+  <span class="k">return</span> entry.promise;
+}</pre></div>
+<div class="note bad"><b class="t">บทเรียน (2026-10-21)</b>งานร่วมที่เริ่มในคำขออื่นอาจไม่มีวันเสร็จ เพราะ Cloudflare ปิดคำขอนั้นไปก่อน เดิมผู้รอค้างตลอดจนหน้า Monitoring โหลดไม่เสร็จ จึงห้ามรอ promise ร่วมโดยไม่มี <code>withTimeout()</code></div>
+<div class="note warn"><b class="t">แก้ worker.js แล้ว</b>ต้องบอกผู้ใช้ให้ deploy ใหม่: Cloudflare → Worker → Edit code → วางโค้ด → Deploy (GitHub Pages ไม่ได้รัน Worker)</div>
+</section>
+
+<!-- 19 -->
+<section class="ch" id="gas">
+<h2><span class="num">19</span>Google Apps Script (<code>server/apps-script/Code.gs</code>)</h2>
+<p class="sub">ชั้นที่ใกล้ข้อมูลที่สุด รับคำขอเฉพาะจาก Worker (ตรวจ <code>SECRET</code>) และอ่านเฉพาะไฟล์ในโฟลเดอร์ของ ESP32</p>
+<div class="tblw"><table>
+<tr><th>action</th><th>ทำอะไร</th></tr>
+<tr><td><code>index</code></td><td>รายการไฟล์ทั้งโฟลเดอร์ จัดกลุ่มตาม device: ไฟล์ที่แก้ภายใน <code>KEEP_DAYS</code> (92 วัน) ส่งครบ, เครื่องที่ไฟล์เก่ากว่านั้นทั้งหมดส่งไฟล์ล่าสุด 1 ไฟล์ (เครื่องจึงไม่หายจากหน้าเว็บ แสดงเป็นไม่ได้ใช้งาน) + <code>firstDate</code> / <code>lastDate</code></td></tr>
+<tr><td><code>range</code></td><td>ค้นไฟล์ของเครื่องเดียวด้วยชื่อ ในช่วง ≤ <code>RANGE_MAX_DAYS</code> (92) · จำ id ที่ส่งไปใน CacheService 6 ชม. ให้ <code>files</code> อ่านได้</td></tr>
+<tr><td><code>file</code> / <code>files</code></td><td>อ่านเนื้อไฟล์ (≤ 40 ไฟล์ต่อครั้ง) พร้อมกันด้วย <code>UrlFetchApp.fetchAll</code> (Drive API) ตรวจก่อนว่าไฟล์อยู่ในโฟลเดอร์</td></tr>
+<tr><td>POST <code>mail</code></td><td>ส่งอีเมล OTP / แจ้งแอดมิน ผ่าน MailApp (~100 ฉบับ/วัน)</td></tr>
+</table></div>
+<div class="code"><div class="hd"><span>Code.gs · buildIndex_ (กฎ "ทุกเครื่องต้องอยู่ในรายการ")</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="k">const</span> recent = list.filter((f) =&gt; f.modified &gt; since);       <span class="c">// แก้ภายใน 92 วัน</span>
+<span class="k">const</span> keep = recent.length ? recent : [list[list.length - <span class="n">1</span>]];  <span class="c">// ไม่มีเลย = ไฟล์ล่าสุด 1 ไฟล์</span>
+devices[k] = {
+  lastModified,
+  firstDate: list[<span class="n">0</span>].date,
+  lastDate: list[list.length - <span class="n">1</span>].date,
+  files: keep,
+};</pre></div>
+<ul>
+<li>รายการไฟล์ใช้ <b>Drive API v3</b> ดึงทั้งโฟลเดอร์ในคำขอเดียว + จำ 60 วินาที (DriveApp ทีละไฟล์ใช้ 7–11 วินาทีที่ ~200 ไฟล์ เหลือไว้เป็นทางสำรอง)</li>
+<li>ข้อความ error ที่ส่งกลับตัดส่วนที่ดูเหมือน ID ยาวออก กัน ID โฟลเดอร์หลุด</li>
+<li>ค่าลับใน Script Properties: <code>SECRET</code>, <code>FOLDER_ID</code> · ต้อง Run <code>testFiles</code> / <code>testRange</code> 1 ครั้งเพื่ออนุญาตสิทธิ์</li>
+</ul>
+<div class="note warn"><b class="t">แก้ Code.gs แล้ว</b>Deploy → Manage deployments → แก้ deployment เดิม → Version: New version → Deploy (URL เดิม ไม่ต้องแก้ Worker) คู่มือละเอียดอยู่ที่ <code>docs/MONITORING-SETUP.md</code></div>
+</section>
+
+<!-- 20 -->
+<section class="ch" id="mon-page">
+<h2><span class="num">20</span>หน้า Monitoring (<code>monitor.js</code> + <code>monitor-api.js</code>)</h2>
+<p class="sub"><code>monitor-api.js</code> เป็นจุดเดียวที่ดึงข้อมูล (Worker จริง หรือข้อมูลจำลองเมื่อ <code>?demo</code>) หน้าอื่นไม่เรียก Worker เอง</p>
+<h3>20.1 สถานะของ device</h3>
+<figure><div class="scroll">
+<svg viewBox="0 0 800 220" width="800" role="img" aria-label="ลำดับการตัดสินสถานะ: ไฟล์ไม่ถูกแก้เกิน 90 วันคือไม่ได้ใช้งาน เกิน 25 นาทีคือ Offline แถวล่าสุดเก่ากว่าเวลาแก้ไฟล์เกิน 25 นาทีคือไม่มีข้อมูลจากตู้ นอกนั้น Online">
+<defs><marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+<g font-size="12">
+<rect x="10" y="20" width="170" height="56" rx="8" fill="var(--surface)" stroke="var(--line2)" stroke-width="2"/><text x="95" y="44" text-anchor="middle">ไฟล์ไม่ถูกแก้</text><text x="95" y="62" text-anchor="middle">เกิน 90 วัน?</text>
+<rect x="210" y="20" width="170" height="56" rx="8" fill="var(--surface)" stroke="var(--line2)" stroke-width="2"/><text x="295" y="44" text-anchor="middle">ไฟล์ไม่ถูกแก้</text><text x="295" y="62" text-anchor="middle">เกิน 25 นาที?</text>
+<rect x="410" y="20" width="220" height="56" rx="8" fill="var(--surface)" stroke="var(--line2)" stroke-width="2"/><text x="520" y="44" text-anchor="middle">แถวข้อมูลล่าสุด เก่ากว่าเวลา</text><text x="520" y="62" text-anchor="middle">แก้ไฟล์เกิน 25 นาที?</text>
+<rect x="660" y="20" width="130" height="56" rx="28" fill="color-mix(in srgb,var(--ok) 14%,var(--surface))" stroke="var(--ok)" stroke-width="2"/><text x="725" y="53" text-anchor="middle" font-weight="700" fill="var(--ok)">Online</text>
+<line x1="180" y1="48" x2="208" y2="48" stroke="currentColor" stroke-width="2" marker-end="url(#a6)"/><text x="184" y="40" font-size="10">ไม่</text>
+<line x1="380" y1="48" x2="408" y2="48" stroke="currentColor" stroke-width="2" marker-end="url(#a6)"/><text x="384" y="40" font-size="10">ไม่</text>
+<line x1="630" y1="48" x2="658" y2="48" stroke="currentColor" stroke-width="2" marker-end="url(#a6)"/><text x="634" y="40" font-size="10">ไม่</text>
+<line x1="95" y1="76" x2="95" y2="128" stroke="currentColor" stroke-width="2" marker-end="url(#a6)"/><text x="102" y="104" font-size="10">ใช่</text>
+<line x1="295" y1="76" x2="295" y2="128" stroke="currentColor" stroke-width="2" marker-end="url(#a6)"/><text x="302" y="104" font-size="10">ใช่</text>
+<line x1="520" y1="76" x2="520" y2="128" stroke="currentColor" stroke-width="2" marker-end="url(#a6)"/><text x="527" y="104" font-size="10">ใช่</text>
+<rect x="10" y="130" width="170" height="56" rx="28" fill="var(--surface)" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 4"/><text x="95" y="154" text-anchor="middle" font-weight="700" fill="var(--muted)">ไม่ได้ใช้งาน</text><text x="95" y="172" text-anchor="middle" font-size="10.5" fill="var(--muted)">ปุ่มกรองแยก ไม่นับใน "ทั้งหมด"</text>
+<rect x="210" y="130" width="170" height="56" rx="28" fill="var(--surface)" stroke="var(--muted)" stroke-width="2"/><text x="295" y="163" text-anchor="middle" font-weight="700" fill="var(--muted)">Offline</text>
+<rect x="410" y="130" width="220" height="56" rx="28" fill="color-mix(in srgb,var(--warn) 12%,var(--surface))" stroke="var(--warn)" stroke-width="2"/><text x="520" y="154" text-anchor="middle" font-weight="700" fill="var(--warn)">Online · ไม่มีข้อมูลจากตู้</text><text x="520" y="172" text-anchor="middle" font-size="10.5" fill="var(--warn)">ESP32 ต่อเน็ตได้ แต่ไม่ได้ข้อมูลจากตู้</text>
+</g></svg></div>
+<figcaption>ประเมิน ณ เวลาที่ได้รายการเครื่อง (<code>index.__asOf</code>) ไม่ใช่เวลาปัจจุบัน เดิมรายการเก่าถูกเทียบกับนาฬิกาปัจจุบันจนทุกเครื่องกลายเป็น Offline ทั้งที่ยังทำงาน</figcaption></figure>
+<div class="code"><div class="hd"><span>js/monitor-api.js · deviceStatus</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="k">export function</span> deviceStatus(device, lastRecord, at = nowMs()) {
+  <span class="k">if</span> (isInactive(device, at)) <span class="k">return</span> <span class="s">"inactive"</span>;
+  <span class="k">if</span> (!isOnline(device, at)) <span class="k">return</span> <span class="s">"offline"</span>;
+  <span class="k">if</span> (lastRecord == <span class="k">null</span> || Number.isNaN(lastRecord)) <span class="k">return</span> <span class="s">"online"</span>;
+  <span class="k">const</span> recordReal = lastRecord - zoneOffset(FILE_TIME_ZONE, lastRecord); <span class="c">// เวลาไทย → เวลาจริง</span>
+  <span class="k">const</span> modifiedReal = Date.parse(device.lastModified) / <span class="n">1000</span>;
+  <span class="k">return</span> modifiedReal - recordReal &gt; OFFLINE_MINUTES * <span class="n">60</span> ? <span class="s">"nodata"</span> : <span class="s">"online"</span>;
+}</pre></div>
+<h3>20.2 การ์ดต่อ 1 device (ลำดับผู้ใช้กำหนด)</h3>
+<ol class="steps">
+<li>ชื่อ + ป้ายสถานะ</li>
+<li>คำอธิบายเครื่อง (ภาษาอังกฤษ) บรรทัดใต้ชื่อ + ปุ่ม ✎ (หัวข้อ 20.4)</li>
+<li>ซอฟต์แวร์ + "ข้อมูล ณ" (เวลาของแถวที่แสดง)</li>
+<li>กราฟอุณหภูมิย่อ 24 ชม. สูง 200 px แกน Y ปรับตามข้อมูล ชี้/แตะแล้วค่าทั้งการ์ดเปลี่ยนเป็นค่า ณ จุดนั้น ไม่มีซูม</li>
+<li>อุณหภูมิ 5 เซนเซอร์ ชื่อย่อ <code>TC</code> <code>F</code> <code>FD</code> <code>R</code> <code>RD</code>-sensor ในกรอบวงรี 2 คอลัมน์</li>
+<li>แผงควบคุม = รายการกลุ่ม CONTROL PANEL ใน <code>STATUS_ITEMS</code> (เพิ่มในกลุ่มนี้แล้วการ์ดแสดงเอง)</li>
+<li>ท้ายการ์ดชิดล่างเสมอ: ข้อความแจ้งเตือน, ปรับปรุงล่าสุด, "ดูกราฟเต็ม →"</li>
+</ol>
+<h3>20.3 โหลดข้อมูลให้ไว</h3>
+<ul>
+<li>แสดงการ์ดทันทีที่ได้รายการเครื่อง ("กำลังโหลดข้อมูล…") แล้วเติมทีละเครื่อง</li>
+<li><code>prefetchFiles(files)</code> โหลดไฟล์ 2 วันล่าสุดของทุกเครื่องในคำขอเดียว (<code>/files</code>) Worker รุ่นเก่าไม่มี <code>/files</code> (404) → กลับไปใช้ <code>/file</code> ทีละไฟล์เอง</li>
+<li>ไฟล์จำตาม <code>modified</code>: วันที่ผ่านไปแล้วไม่โหลดซ้ำ (<code>?v=</code> + <code>immutable</code>)</li>
+<li>ถามข้อมูลใหม่ทุก <code>REFRESH_MS</code> (1 นาที) และทันทีที่กลับมาที่แท็บ / เน็ตกลับมา (<code>onResume()</code> ห่างกันอย่างน้อย 10 วินาที)</li>
+<li><code>describeTiming()</code> แยกเวลาเป็น เครือข่าย / Worker / Google / cache แสดงใต้ "ตรวจสอบล่าสุด" ช้า ≥ 2 วินาทีพื้นเหลือง · <code>explainError()</code> ต่อท้าย error ด้วย "สาเหตุ: …"</li>
+</ul>
+
+<h3>20.4 คำอธิบายเครื่อง: ข้อมูลที่ผู้ใช้แก้ได้ บนเว็บที่ไม่มี database</h3>
+<p>บอกว่าเครื่องใช้ทำอะไร เช่น <code>Field test - BONA H30 IRAQ</code> เป็นฟีเจอร์แรกที่ผู้ใช้<b>เขียน</b>ข้อมูลกลับไปที่ระบบ (ที่ผ่านมาทุกอย่างอ่านอย่างเดียว) จึงต้องเลือกว่าจะเก็บที่ไหน</p>
+<div class="tblw"><table>
+<tr><th>ทางเลือก</th><th>ทำไมไม่เลือก / ทำไมเลือก</th></tr>
+<tr><td>ใน repo (<code>config.js</code>)</td><td>repo เป็น Public ข้อความอาจบอกสถานที่ / ลูกค้า และแก้ทุกครั้งต้อง commit</td></tr>
+<tr><td>localStorage</td><td>แต่ละคนเห็นไม่เหมือนกัน</td></tr>
+<tr><td>ไฟล์ใน Google Drive</td><td>ต้องแก้ใน Drive เอง ไม่สะดวก</td></tr>
+<tr><td><b>Cloudflare KV ผ่าน Worker</b> ✓</td><td>อยู่หลัง login เหมือนข้อมูลอื่น แก้บนเว็บแล้วมีผลทันที ใช้ KV <code>USERS</code> ตัวเดิม</td></tr>
+</table></div>
+<figure><div class="scroll">
+<svg viewBox="0 0 800 170" width="800" role="img" aria-label="กด ✎ บนการ์ด พิมพ์ภาษาอังกฤษ เว็บตรวจรูปแบบ POST /labels Worker ตรวจสิทธิ์และรูปแบบซ้ำ เขียน KV labels แล้วส่งรายการกลับ">
+<defs><marker id="a7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+<g font-size="12">
+<rect x="10" y="20" width="230" height="110" rx="8" fill="var(--l-page-bg)" stroke="var(--l-page)" stroke-width="2"/>
+<text x="125" y="44" text-anchor="middle" font-weight="700" fill="var(--l-page)">การ์ด (monitor.js)</text>
+<text x="24" y="68" class="mono" font-size="11">labelView() → ✎</text>
+<text x="24" y="88" class="mono" font-size="11">openLabelEditor()</text>
+<text x="24" y="108" font-size="11">ตรวจ LABEL_RE → "English only"</text>
+<line x1="240" y1="75" x2="318" y2="75" stroke="currentColor" stroke-width="2" marker-end="url(#a7)"/>
+<text x="279" y="66" text-anchor="middle" class="mono" font-size="10.5">POST /labels</text>
+<rect x="320" y="20" width="240" height="110" rx="8" fill="var(--l-srv-bg)" stroke="var(--l-srv)" stroke-width="2"/>
+<text x="440" y="44" text-anchor="middle" font-weight="700" fill="var(--l-srv)">Worker · labelsPost()</text>
+<text x="334" y="68" font-size="11">requireApproved (ทุกคนที่อนุมัติ)</text>
+<text x="334" y="88" font-size="11">ตรวจ LABEL_RE + ≤ 40 ตัวซ้ำ</text>
+<text x="334" y="108" font-size="11">"" = ลบ</text>
+<line x1="560" y1="75" x2="618" y2="75" stroke="currentColor" stroke-width="2" marker-end="url(#a7)"/>
+<rect x="620" y="20" width="170" height="110" rx="8" fill="var(--surface)" stroke="var(--l-srv)" stroke-width="2"/>
+<text x="705" y="44" text-anchor="middle" font-weight="700">KV "labels"</text>
+<text x="634" y="70" class="mono" font-size="10.5">{ Q001: { text,</text>
+<text x="634" y="88" class="mono" font-size="10.5">    by, at } }</text>
+<text x="634" y="112" font-size="10.5" fill="var(--muted)">by/at ไม่ส่งให้เว็บ</text>
+<text x="10" y="158" font-size="11.5" fill="var(--muted)">ตรวจรูปแบบ 2 ที่: เว็บตรวจให้ผู้ใช้เห็นทันที · Worker ตรวจซ้ำเพราะคนเรียก API ตรงได้โดยไม่ผ่านหน้าเว็บ</text>
+</g></svg></div></figure>
+<div class="code"><div class="hd"><span>js/monitor-api.js · กฎของข้อความ</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="k">export const</span> LABEL_MAX = <span class="n">40</span>;   <span class="c">// เท่ากับ LABEL_MAX ใน worker.js</span>
+<span class="k">export const</span> LABEL_RE = <span class="s">/^[A-Za-z0-9 _.,\/()#:-]*$/</span>; <span class="c">// A–Z, 0–9, ช่องว่าง และ - _ . , / ( ) # :</span></pre></div>
+<ul>
+<li><b>การ์ดเป็นลิงก์ <code>&lt;a&gt;</code></b> ทุกคลิกในส่วนแก้ไขต้อง <code>preventDefault()</code> + <code>stopPropagation()</code> (<code>stopLink</code>) ไม่งั้นกด ✎ แล้วเด้งไปหน้ากราฟ</li>
+<li><b>ระหว่างแก้ ห้ามวาดการ์ดใหม่</b> หน้าเว็บปรับปรุงทุก 1 นาที และวาดใหม่ทุก 30 วินาที ถ้าวาดทับ ข้อความที่พิมพ์จะหาย จึงใช้ <code>state.editing</code>: <code>render()</code> ออกทันทีแล้วจดว่าค้างไว้ วาดทีเดียวหลังบันทึก / ยกเลิก · ค้นหา / กรองระหว่างแก้ = ยกเลิกการแก้ก่อน</li>
+<li>✓ / Enter = บันทึก · 🗑 = ลบทิ้งแล้วออกจากการแก้ทันที · ✕ / Esc = ยกเลิก</li>
+<li>ช่องค้นหาค้นจาก <code>`${name} ${label}`</code> จึงค้นได้ทั้งชื่อเครื่องและคำอธิบาย · หน้ากราฟเต็ม (<code>live.js</code>) แสดงต่อท้ายชื่อเครื่อง</li>
+<li>Worker รุ่นเก่ายังไม่มี <code>/labels</code> (404) → <code>getLabels()</code> คืน <code>null</code> เว็บไม่แสดงปุ่ม ✎ (เว็บขึ้นก่อน deploy Worker ก็ไม่พัง) · <code>?demo</code> เก็บใน localStorage <code>demoLabels</code></li>
+</ul>
+</section>
+
+<!-- 21 -->
+<section class="ch" id="live">
+<h2><span class="num">21</span>กราฟของ device (<code>live.js</code>)</h2>
+<p class="sub"><code>analyze.html?device=Q003</code> ใช้หน้ากราฟเดิมทั้งหมด ไม่ทำหน้าแยก เพื่อไม่ต้องก๊อปหน้ากราฟ</p>
+<ol class="steps">
+<li><code>main.js</code> เห็น <code>?device=</code> → import <code>live.js</code> ซ่อนกล่องนำเข้าไฟล์ (<code>body.live-mode</code>) แสดงแถบ device</li>
+<li>เลือกไฟล์ของช่วงวัน (1 / 3 / 7 / 14 / 30 / 60 / 90 วัน นับจาก<b>ไฟล์ล่าสุดของเครื่อง</b>) จำใน localStorage <code>liveDays</code></li>
+<li>รวม CSV ทุกไฟล์เป็น Blob เดียว (<code>joinCsv()</code>) → <code>loadFile(blob, name, { keepView })</code> parser เดิมถอด ESP32 ให้</li>
+<li>ทุก 1 นาที: ไฟล์เปลี่ยน → โหลดใหม่ คงช่วงที่ซูม / ช่วงที่เลือก / โน้ต / เส้นที่ปิด ถ้าดูถึงท้ายข้อมูลอยู่ → เลื่อนตามข้อมูลใหม่</li>
+</ol>
+<h3>21.1 เลือกช่วงย้อนหลัง</h3>
+<p>ใช้ช่อง เริ่ม / สิ้นสุด ของกราฟโดยตรง (ไม่มีตัวเลือก "กำหนดช่วงเอง" แยก) ปฏิทินทำวันนอกช่วงที่มีข้อมูลให้จาง (<code>setRangeLimits()</code>) และใต้ช่องบอก "ข้อมูลที่มี: … ถึง … · เลือกได้ไม่เกิน 90 วัน"</p>
+<div class="code"><div class="hd"><span>main.js → live.js</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="c">// main.js: กด "แสดงช่วงนี้" — ให้ live.js ตัดสินก่อน</span>
+<span class="k">if</span> (rangeHook &amp;&amp; rangeHook(min, max)) <span class="k">return</span>;
+
+<span class="c">// live.js · onRangeApply(min, max)</span>
+<span class="c">//   อยู่ในไฟล์ที่โหลดไว้       → return false (main.js ซูมตามเดิม)</span>
+<span class="c">//   ยาวเกิน MAX_DAYS (90)      → ข้อความแดง "เลือกได้ไม่เกิน 90 วัน"</span>
+<span class="c">//   นอกนั้น → filesBetween()  → state.custom = {from, to, view} → โหลดใหม่</span>
+<span class="c">//   ไม่มีไฟล์ในช่วง            → คงกราฟเดิม + "ไม่มีข้อมูลกราฟในช่วง … ถึง …"</span></pre></div>
+<ul>
+<li>ช่วงที่เลือกเองทำให้ช่อง "ช่วงข้อมูล" เป็น "–" และมีปุ่ม <b>↺ ล้างวันที่เลือก (N วันล่าสุด)</b> ข้าง "ดูทั้งหมด"</li>
+<li>"ดูทั้งหมด" = ทั้งหมดของช่วงที่เลือก ไม่ล้างช่วง</li>
+<li><code>filesBetween()</code> ใช้ไฟล์ในรายการเครื่องถ้าครอบคลุม เก่ากว่านั้นขอ <code>GET /range</code></li>
+</ul>
+</section>
+
+<div class="part">ส่วนที่ 4 · งานประจำ</div>
+
+<!-- 22 -->
+<section class="ch" id="local">
+<h2><span class="num">22</span>รันเว็บในเครื่อง</h2>
+<div class="tblw"><table>
+<tr><th>ต้องมี</th><th>ใช้ทำอะไร</th><th>เช็ก</th></tr>
+<tr><td>Python 3</td><td>server ในเครื่อง, สร้างไฟล์ตัวอย่าง</td><td><code>python --version</code></td></tr>
+<tr><td>Git</td><td>เก็บประวัติ / ส่งขึ้น GitHub</td><td><code>git --version</code></td></tr>
+<tr><td>Chrome / Edge / Firefox</td><td>ทดสอบ</td><td>–</td></tr>
+<tr><td><code>openpyxl</code> (ไม่บังคับ)</td><td>สร้าง <code>samples/sample.xlsx</code></td><td><code>pip install openpyxl</code></td></tr>
+</table></div>
+<ol class="steps">
+<li>เปิด terminal ที่โฟลเดอร์โปรเจกต์ แล้วรัน <code>python -m http.server 8000</code></li>
+<li>เปิด <code>http://localhost:8000</code> → วิเคราะห์ไฟล์ Log → "ทดลองใช้งานด้วยไฟล์ตัวอย่าง" ต้องเห็นกราฟและตารางครบทุกหัวข้อ</li>
+<li>กด F12 → Console ต้องไม่มีข้อความสีแดง</li>
+<li>ทดสอบ Monitoring ด้วย <code>http://localhost:8000/monitor.html?demo</code> (Worker อนุญาต origin <code>localhost:8000</code> ด้วย)</li>
+</ol>
+<div class="code"><div class="hd"><span>terminal</span><button type="button" data-copy>คัดลอก</button></div><pre>python -m http.server 8000</pre></div>
+<div class="note warn"><b class="t">หน้าเว็บว่าง?</b>ห้ามเปิด .html ด้วยดับเบิลคลิก (<code>file://</code>) เพราะ ES modules และ Web Worker ใช้ไม่ได้ · แก้ไฟล์แล้วเว็บไม่เปลี่ยน = browser จำไฟล์เก่า กด Ctrl+F5 หรือ F12 → Network → ติ๊ก Disable cache</div>
+<h3>22.1 รอบการทำงานปกติ</h3>
+<p>แก้โค้ด → Ctrl+F5 ที่ localhost → ทดสอบกับไฟล์ตัวอย่าง + ไฟล์จริงใน <code>samples/private/</code> → Console ไม่มี error → อัปเดต CLAUDE.md ถ้าเป็นกฎใหม่ → พร้อม release</p>
+</section>
+
+<!-- 23 -->
+<section class="ch" id="add">
+<h2><span class="num">23</span>เพิ่มรายการใหม่ในกราฟ / ตาราง</h2>
+<p class="sub">ตัวอย่างสอน (ยังไม่ได้ทำจริงในโค้ด): เพิ่มสถานะประตูจาก <code>doorsClosed</code> เป็นจุดสีเทาที่ Y = 51 ตอนประตูเปิด ในหัวข้อ SYSTEM</p>
+<ol class="steps">
+<li><b>ดูข้อมูลจริงก่อน</b> ต้องรู้ชื่อคอลัมน์ตรงตัว ค่าที่เป็นไปได้ และมีในทุกไฟล์ไหม (ผล WLAN จริง: <code>{'1': 1433, '0': 2}</code> = มีแค่ 0/1)</li>
+<li><b>เลือก kind</b> (ตารางบท 11.2) ประตู → <code>"marker"</code>, <code>shape: "dot"</code>, <code>drawWhen: "zero"</code></li>
+<li><b>เพิ่มใน STATUS_ITEMS</b> พร้อม comment อธิบายค่า worker อ่านคอลัมน์ให้เองโดยไม่ต้องแก้ worker</li>
+<li><b>ข้อความแบบใหม่</b> (ถ้า <code>display</code> ที่มีใช้ไม่ได้) เพิ่มใน <code>cursorText()</code> · หัวข้อใหม่เพิ่มใน <code>TABLE_GROUPS</code></li>
+<li><b>เพิ่มในไฟล์ตัวอย่าง</b> <code>tools/make-sample.py</code> (และ <code>make-esp-sample.py</code> ถ้าเป็นฟิลด์ ESP32) แล้วสร้างไฟล์ใหม่ ไฟล์ตัวอย่างต้องมีข้อมูลครบทุกเส้น</li>
+<li><b>ทดสอบ</b> หัวข้อ ภาพลักษณะ สี ค่า ณ เคอร์เซอร์ และไฟล์ที่ไม่มีคอลัมน์นี้ต้องไม่พัง</li>
+<li><b>อัปเดต CLAUDE.md</b> แถวในตาราง "รายการสถานะ" CLAUDE.md คือสเปกหลัก</li>
+</ol>
+<div class="code"><div class="hd"><span>ขั้น 1 · ดูค่าในไฟล์จริง</span><button type="button" data-copy>คัดลอก</button></div><pre>python -c "import collections; L=open(r'samples/private/wlan_d006.log',encoding='latin-1').read().splitlines(); h=[x.strip() for x in L[1].split('\t')]; i=h.index('doorsClosed'); print(collections.Counter(r.split('\t')[i] for r in L[2:] if r))"</pre></div>
+<div class="code"><div class="hd"><span>ขั้น 3 · js/logformat.js</span><button type="button" data-copy>คัดลอก</button></div><pre>  <span class="c">// ประตู: doorsClosed 1 = ปิด, 0 = เปิด → จุดสีเทาที่ Y = 51 ตอนประตูเปิด</span>
+  { key: <span class="s">"doorOpen"</span>, column: <span class="s">"doorsClosed"</span>, group: <span class="s">"system"</span>, kind: <span class="s">"marker"</span>, shape: <span class="s">"dot"</span>,
+    color: <span class="s">"rgb(150, 150, 150)"</span>, y: <span class="n">51</span>, drawWhen: <span class="s">"zero"</span>,
+    th: <span class="s">"Door open"</span>, en: <span class="s">"Door open"</span>, display: <span class="s">"doorOpen"</span> },</pre></div>
+<div class="code"><div class="hd"><span>ขั้น 4 · js/main.js · cursorText()</span><button type="button" data-copy>คัดลอก</button></div><pre>  <span class="k">if</span> (display === <span class="s">"doorOpen"</span>) <span class="k">return</span> v === <span class="n">0</span> ? <span class="s">"Open"</span> : <span class="s">"Closed"</span>;</pre></div>
+<div class="note warn"><b class="t">ระวัง doorsClosed</b>บางเฟิร์มแวร์ชื่อคอลัมน์ไบต์ 73 เลื่อน (<code>doorsClosed</code> = errHighTemp ตัวจริง) ต้องตรวจด้วย <code>highTempShifted()</code> ก่อนใช้ ตัวอย่างนี้จึงยังไม่ได้ทำจริง · Y = 51 ตอนนี้เป็นของ Key lock แล้ว ต้องเลือกตำแหน่งใหม่ที่ไม่ทับ</div>
+<h3>23.1 งานแก้ไขที่เจอบ่อย</h3>
+<div class="tblw"><table>
+<tr><th>อยากทำ</th><th>แก้ที่ไหน</th></tr>
+<tr><td>เปลี่ยนสี / ชื่อ / หัวข้อ / Y</td><td><code>color</code> / <code>th</code> <code>en</code> / <code>group</code> / <code>y</code> <code>yRange</code> ใน <code>logformat.js</code> (สีต้องให้ผู้ใช้กำหนด)</td></tr>
+<tr><td>ย้ายกล่องบนจอแนวนอน / ลำดับหัวข้อ</td><td><code>TABLE_GROUPS</code> ใน main.js</td></tr>
+<tr><td>ข้อความ TH/EN ใน HTML</td><td><code>data-th</code> + <code>data-en</code> (ข้อความตั้งต้นภาษาไทย)</td></tr>
+<tr><td>ข้อความจาก JS</td><td><code>MSG</code> ของโมดูลนั้น แล้วเรียก <code>t(MSG.xxx, { param })</code></td></tr>
+<tr><td>สีพื้น / โหมดมืด</td><td><code>:root</code> และ <code>:root[data-theme="dark"]</code> ใน style.css</td></tr>
+<tr><td>รูปแบบวันที่ใหม่</td><td><code>parseDateParts()</code> / <code>partsToEpoch()</code> + ตารางวันที่ใน CLAUDE.md</td></tr>
+<tr><td>ชื่อคอลัมน์เวลาใหม่</td><td><code>TIME_COLUMN_NAMES</code></td></tr>
+<tr><td>เกณฑ์ Offline / ช่วงวัน / เวลาปรับปรุง</td><td><code>js/config.js</code></td></tr>
+</table></div>
+</section>
+
+<!-- 24 -->
+<section class="ch" id="test">
+<h2><span class="num">24</span>ทดสอบก่อนปล่อย</h2>
+<p class="sub">ติ๊กได้ระหว่างทดสอบ ค่าที่ติ๊กจำไว้ใน browser นี้เท่านั้น</p>
+<div class="progress"><span id="ck-count">0 / 0</span><button type="button" id="ck-reset">ล้างที่ติ๊ก</button></div>
+<h4>ไฟล์</h4>
+<ul class="check">
+<li><label><input type="checkbox" id="ck1"><span><code>samples/sample.log</code> <code>.csv</code> <code>.xlsx</code> ขึ้นครบทุกหัวข้อ ทุกเส้นมีข้อมูล</span></label></li>
+<li><label><input type="checkbox" id="ck2"><span>ไฟล์จริงใน <code>samples/private/</code> อย่างน้อย 1 ไฟล์ต่อรูปแบบ logger (1 วินาที / WLAN / ESP32)</span></label></li>
+<li><label><input type="checkbox" id="ck3"><span><code>samples/private/big.log</code> (~80 MB) โหลดได้ หน้าเว็บไม่ค้าง</span></label></li>
+<li><label><input type="checkbox" id="ck4"><span><code>samples/broken/*.log</code> ทุกไฟล์ขึ้นข้อความ error ที่อ่านเข้าใจ</span></label></li>
+<li><label><input type="checkbox" id="ck5"><span>CSV ESP32 ตัวอย่าง: แจ้งข้าม 1 แถว (hex เสีย) และ byte ไม่ครบ ไม่มีจุด 0 °C ปลอม</span></label></li>
+</ul>
+<h4>หน้าจอ</h4>
+<ul class="check">
+<li><label><input type="checkbox" id="ck6"><span>จอแนวนอนกว้าง: ตารางรอบกราฟ ทั้งหมดอยู่ในจอเดียว</span></label></li>
+<li><label><input type="checkbox" id="ck7"><span>มือถือ: เรียงลงมา ไม่มีแถบเลื่อนแนวนอน</span></label></li>
+<li><label><input type="checkbox" id="ck8"><span>สลับ TH/EN และโหมดสว่าง/มืด ข้อความและสีเปลี่ยนครบ กราฟยังอยู่</span></label></li>
+</ul>
+<h4>การโต้ตอบ</h4>
+<ul class="check">
+<li><label><input type="checkbox" id="ck9"><span>ลูกกลิ้ง zoom · ลากขวาเลื่อน · ลากซ้ายเลือกช่วง · คลิกยกเลิก · ดับเบิลคลิก = Real data</span></label></li>
+<li><label><input type="checkbox" id="ck10"><span>จอสัมผัส: แตะ / ลาก / จีบ / ลาก 2 นิ้ว / แตะ 2 ครั้ง</span></label></li>
+<li><label><input type="checkbox" id="ck11"><span>Real data: ค่าตรงกับไฟล์, ☆ เทียบ, เรียง/กรอง, Export CSV เปิดใน Excel ได้</span></label></li>
+<li><label><input type="checkbox" id="ck12"><span>Time zone: เปลี่ยนแล้วเวลาที่แสดงเปลี่ยน ช่วงที่เลือก/โน้ตไม่ขยับ</span></label></li>
+<li><label><input type="checkbox" id="ck13"><span>โน้ต + บันทึกรูป PNG</span></label></li>
+</ul>
+<h4>Monitoring</h4>
+<ul class="check">
+<li><label><input type="checkbox" id="ck14"><span><code>monitor.html?demo</code>: DEMO01 Online / DEMO02 Offline / DEMO03 ไม่มีข้อมูลจากตู้ / DEMO04 อยู่ในปุ่มไม่ได้ใช้งาน</span></label></li>
+<li><label><input type="checkbox" id="ck15"><span>กดการ์ด → กราฟเต็ม, เลือกช่วงย้อนหลัง, ↺ ล้างวันที่เลือก, หยุด/ต่อ ปรับปรุง</span></label></li>
+<li><label><input type="checkbox" id="ck16"><span>ระบบจริง: login → ขอสิทธิ์ → อนุมัติ → เห็นข้อมูล · ถอนสิทธิ์แล้วกลับหน้าเข้าสู่ระบบภายใน ~1 นาที</span></label></li>
+<li><label><input type="checkbox" id="ck17"><span>Console (F12) ไม่มี error</span></label></li>
+</ul>
+</section>
+
+<!-- 25 -->
+<section class="ch" id="release">
+<h2><span class="num">25</span>ปล่อยเวอร์ชันใหม่ (Release)</h2>
+<p class="sub">เว็บจริงอัปเดตจาก branch <code>main</code> อัตโนมัติ commit อย่างเดียวยังไม่ขึ้นเว็บ ต้อง push</p>
+<ol class="steps">
+<li>เปลี่ยน <code>APP_VERSION</code> ใน <code>js/site.js</code> และบรรทัด "(ตอนนี้ x.y)" ใน CLAUDE.md · ถ้ามีสไลด์ แก้ <code>tools/make-training-deck.py</code> แล้วสร้างใหม่</li>
+<li>ทดสอบตามบท 24</li>
+<li><code>git status</code> ดูให้ครบว่าไม่มี <code>samples/private/</code>, log/csv/xlsx จริง, ไฟล์ <code>~$…</code></li>
+<li><code>git add -A</code> แล้ว <code>git commit</code> ข้อความภาษาอังกฤษสั้นๆ</li>
+<li><code>git push origin main</code></li>
+<li>รอ ~1 นาที เปิดเว็บจริง Ctrl+F5 ป้ายหัวเว็บต้องเป็นเวอร์ชันใหม่ (GitHub Pages ให้ browser จำไฟล์ได้ ~10 นาที)</li>
+<li>ถ้าแก้ <code>Code.gs</code> / <code>worker.js</code> ด้วย ต้อง deploy ที่ Google / Cloudflare แยกต่างหาก</li>
+</ol>
+<div class="code"><div class="hd"><span>terminal</span><button type="button" data-copy>คัดลอก</button></div><pre>git status
+git add -A
+git commit -m "AHTH graph generator website for update to github - Ver. 3.0"
+git push origin main</pre></div>
+<div class="note"><b class="t">ทำงานกับ Claude Code</b>Claude อ่าน CLAUDE.md ทุกครั้งที่เริ่ม session และเพิ่มกฎใหม่ลงไปเอง แต่ไม่ commit / push เอง ต้องสั่งในแชทครั้งนั้นๆ สั่งงานให้ชัด: ชื่อคอลัมน์ตรงตัว ชื่อที่แสดง สี RGB ตำแหน่ง Y หัวข้อ และความหมายของค่าแต่ละค่า</div>
+</section>
+
+<!-- 26 -->
+<section class="ch" id="trouble">
+<h2><span class="num">26</span>แก้ปัญหาที่เจอบ่อย</h2>
+<details><summary>หน้าเว็บว่าง / Console บอก module หรือ CORS</summary><div>เปิดด้วยดับเบิลคลิก (<code>file://</code>) → รัน <code>python -m http.server 8000</code> แล้วเปิด localhost</div></details>
+<details><summary>แก้โค้ดแล้วเว็บไม่เปลี่ยน / เวอร์ชันไม่เปลี่ยน</summary><div>browser cache → Ctrl+F5 หรือ F12 → คลิกขวาปุ่มรีเฟรช → Empty cache and hard reload · มือถือ: ดูเลขเวอร์ชันบนหัวเว็บ ปิดแท็บแล้วเปิดใหม่</div></details>
+<details><summary>"ไม่พบบรรทัด metadata หรือหัวตารางที่มีคอลัมน์เวลา"</summary><div>คอลัมน์เวลาชื่อใหม่ → เพิ่มใน <code>TIME_COLUMN_NAMES</code></div></details>
+<details><summary>ทุกแถวถูกข้าม "วันที่ผิดรูปแบบ"</summary><div>รูปแบบวันที่ใหม่ → แก้ <code>parseDateParts()</code> และเพิ่มในตารางวันที่ของ CLAUDE.md</div></details>
+<details><summary>ขึ้น "ไม่มีคอลัมน์ในไฟล์: …"</summary><div>firmware รุ่นนี้ไม่มีคอลัมน์นั้น หรือชื่อไม่ตรง (ตัวพิมพ์เล็ก/ใหญ่ต่างกัน <code>heaterA</code> ≠ <code>HeaterA</code>) ถ้าไม่มีจริงก็ปกติ ถ้าชื่อต่างให้เพิ่มใน <code>aliases</code></div></details>
+<details><summary>เส้นขาดเป็นช่วงๆ / รายการขึ้น N/A เอง</summary><div>ตั้งใจให้เป็นแบบนี้: ช่วงห่างเกิน 3 × sampling หรือเซนเซอร์ error · N/A มาจากกฎ "ไม่มีชิ้นส่วนนี้ในตู้"</div></details>
+<details><summary>โหลดไฟล์ใหญ่แล้วค้าง</summary><div>มีการแปลงข้อมูลแบบช้าในหน้าเว็บ → ใช้ loop ธรรมดา ห้าม <code>Array.from(arr, fn)</code> กับข้อมูลหลายแสนจุด และแบ่งงานเป็นหลาย task</div></details>
+<details><summary>Monitoring ช้า / error 429 / "ต้องอนุญาตสิทธิ์"</summary><div>ดูบรรทัด "เวลาที่ใช้" ใต้ ตรวจสอบล่าสุด: ช้าที่ Google = Apps Script เปิดสคริปต์ช้าหรือโควตาเต็ม · "ต้องอนุญาตสิทธิ์" = Run <code>testFiles</code> ใน Apps Script 1 ครั้ง · ดู log ได้ใน Cloudflare → Worker → Logs</div></details>
+<details><summary>เลือกช่วงย้อนหลังแล้วขึ้น "ระบบยังไม่รองรับ…"</summary><div>Worker / Apps Script ยังเป็นรุ่นเก่า (ไม่มี <code>/range</code>) → deploy ทั้ง 2 ตัวใหม่ตามบท 18–19</div></details>
+<details><summary>ลอยปากกาแล้วเคอร์เซอร์ไม่ขยับ</summary><div>เปิดด้วย <code>?pentest</code> แล้วลอยปากกา ถ้ากล่องมุมล่างซ้ายไม่ขึ้นอะไร = อุปกรณ์ไม่ส่ง hover</div></details>
+<details><summary>.xlsx อ่านไม่ได้</summary><div>เป็น .xls รุ่นเก่า หรือไฟล์เสีย → Save As เป็น .xlsx หรือ .csv</div></details>
+<footer>เอกสารนี้สรุปจากโค้ด Release 3.0 และ <code>CLAUDE.md</code> · ต้นฉบับ <code>docs/developer-guide.html</code> · ถ้าโค้ดกับเอกสารไม่ตรงกัน ให้เชื่อ CLAUDE.md และโค้ด · เอกสารประกอบใน repo: <code>docs/WORKFLOW.md</code>, <code>docs/GUIDE.md</code>, <code>docs/MONITORING-SETUP.md</code></footer>
+</section>
+</main>
+</div>
+
+<script>
+(() => {
+  // คัดลอกโค้ด
+  document.querySelectorAll("[data-copy]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const pre = btn.closest(".code").querySelector("pre");
+      const done = () => { btn.textContent = "คัดลอกแล้ว"; setTimeout(() => (btn.textContent = "คัดลอก"), 1400); };
+      const fallback = () => { const r = document.createRange(); r.selectNodeContents(pre); const s = getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = "เลือกข้อความแล้ว"; };
+      try { navigator.clipboard.writeText(pre.innerText).then(done, fallback); } catch { fallback(); }
+    });
+  });
+  // สารบัญ: ไฮไลต์บทที่กำลังอ่าน
+  const links = [...document.querySelectorAll("#toc a")];
+  const map = new Map(links.map((a) => [a.getAttribute("href").slice(1), a]));
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (!e.isIntersecting) return;
+      links.forEach((a) => a.classList.remove("on"));
+      const a = map.get(e.target.id);
+      if (a) { a.classList.add("on"); if (matchMedia("(max-width:920px)").matches) a.scrollIntoView({ block: "nearest", inline: "center" }); }
+    });
+  }, { rootMargin: "-20% 0px -70% 0px" });
+  document.querySelectorAll("section.ch").forEach((s) => obs.observe(s));
+  // Checklist
+  const KEY = "ahthGuideChecks";
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch {}
+  const boxes = [...document.querySelectorAll(".check input")];
+  const update = () => {
+    boxes.forEach((b) => b.closest("li").classList.toggle("done", b.checked));
+    document.getElementById("ck-count").textContent = `${boxes.filter((b) => b.checked).length} / ${boxes.length} ข้อ`;
+  };
+  boxes.forEach((b) => {
+    b.checked = !!saved[b.id];
+    b.addEventListener("change", () => { saved[b.id] = b.checked; try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {} update(); });
+  });
+  document.getElementById("ck-reset").addEventListener("click", () => { saved = {}; boxes.forEach((b) => (b.checked = false)); try { localStorage.removeItem(KEY); } catch {} update(); });
+  update();
+})();
+</script>

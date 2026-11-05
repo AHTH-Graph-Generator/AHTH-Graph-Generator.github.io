@@ -14,6 +14,7 @@ import { ApiError } from "./auth.js";
 import { REFRESH_MS, DAY_OPTIONS, DEFAULT_DAYS } from "./config.js";
 import {
   getIndex, getFileText, prefetchFiles, describeTiming, explainError, filesInRange, filesBetween, availableDates, deviceStatus, lastRecordTime, ageMinutes, joinCsv, isDemo, formatAgo, formatIso, mapLimit, onResume,
+  getLabels,
 } from "./monitor-api.js";
 
 const MSG = {
@@ -146,7 +147,9 @@ async function refresh(opts = {}) {
   $("live-sync").classList.add("spinning"); // ไอคอนหมุนระหว่างปรับปรุงข้อมูล
   const t0 = performance.now();
   try {
-    const index = await getIndex();
+    // คำอธิบายเครื่อง (แก้ได้ที่การ์ดหน้า Monitoring) — ไม่สำเร็จก็ใช้ของเดิม
+    const [index, labels] = await Promise.all([getIndex(), getLabels().catch(() => undefined)]);
+    if (labels !== undefined) state.label = (labels && labels[state.device]) || "";
     state.checked = new Date();
     state.error = null;
     const info = index.devices[state.device];
@@ -236,8 +239,11 @@ function render() {
     const link = document.createElement("a");
     link.href = isDemo() ? "monitor.html?demo" : "monitor.html";
     link.textContent = t(MSG.navTitle);
-    nav.append(link, ` › ${state.device}`);
+    nav.append(link, ` › ${state.device}${state.label ? ` · ${state.label}` : ""}`);
   }
+  $("live-label").hidden = !state.label;
+  $("live-label").textContent = state.label || "";
+  document.title = `${state.device}${state.label ? ` (${state.label})` : ""} · Data Logger Monitoring · AHTH Graph Generator`;
 
   const pill = $("live-status");
   const info = state.info;

@@ -22,6 +22,8 @@
 //   GET  /files?f=<id>@<modified>,…                 หลายไฟล์ในคำขอเดียว → {files:{id:ข้อความ}, errors:{id:สาเหตุ}}
 //                                                   ไฟล์ที่ยังไม่มีใน cache รวมไปขอ Apps Script ครั้งเดียว
 //   ทุกคำตอบข้อมูลมี header Server-Timing (auth / cache / as = Apps Script / gs = เวลาทำงานในสคริปต์) — เว็บใช้บอกว่าช้าที่ไหน
+//   GET  /labels                                    → {labels: {<device>: "ข้อความ"}} คำอธิบายของแต่ละเครื่อง (approved เท่านั้น)
+//   POST /labels {device, label}                    ตั้ง / แก้คำอธิบาย (ผู้ใช้ที่อนุมัติแล้วทุกคน) — ภาษาอังกฤษ ≤ LABEL_MAX ตัว, "" = ลบ
 //   GET  /admin/users                               รายชื่อผู้ใช้ทั้งหมด (แอดมินเท่านั้น)
 //   POST /admin/users {email, action}               action: approve | reject | revoke | delete
 // ============================================================
@@ -39,6 +41,10 @@ const RANGE_MAX_DAYS = 92;             // /range เลือกช่วงไ�
 const RANGE_CACHE_SECONDS = 600;       // จำผล /range 10 นาที (ไฟล์ย้อนหลังไม่เปลี่ยน — ช่วงที่รวมวันนี้เว็บใช้รายการเครื่องแทน)
 const DEVICE_RE = /^[A-Za-z0-9_.-]{1,64}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const LABEL_MAX = 40;                  // คำอธิบายเครื่องยาวไม่เกินกี่ตัวอักษร (เท่ากับ LABEL_MAX ใน js/monitor-api.js)
+const LABEL_RE = /^[A-Za-z0-9 _.,\/()#:-]*$/; // ภาษาอังกฤษเท่านั้น (ผู้ใช้กำหนด)
+const LABELS_KV_KEY = "labels";        // KV: { <device>: { text, by, at } } — by / at เก็บไว้ตรวจย้อนหลัง ไม่ส่งให้หน้าเว็บ
+const LABELS_CACHE_SECONDS = 30;       // จำในหน่วยความจำ — แก้แล้ว instance อื่นเห็นภายใน ~30 วินาที
 const OTP_TTL_SECONDS = 600;        // รหัส OTP ใช้ได้ 10 นาที
 const OTP_MAX_TRIES = 5;            // ใส่รหัสผิดได้ 5 ครั้งต่อรหัส
 const OTP_PER_HOUR = 5;             // ขอรหัสได้ 5 ครั้ง/ชั่วโมง/อีเมล
@@ -116,6 +122,8 @@ export default {
         case "GET /file": return await file(request, env, ctx, cors, url);
         case "GET /files": return await files(request, env, cors, url);
         case "GET /range": return await range(request, env, cors, url);
+        case "GET /labels": return await labelsGet(request, env, cors);
+        case "POST /labels": return await labelsPost(request, env, cors);
         case "GET /admin/users": return await adminList(request, env, cors);
         case "POST /admin/users": return await adminAction(request, env, cors);
         default: return json({ error: "not found" }, 404, cors);
@@ -512,6 +520,38 @@ async function range(request, env, cors, url) {
   return new Response(body, {
     headers: { ...cors, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "Server-Timing": tm.header() },
   });
+}
+
+// ---------- คำอธิบายเครื่อง (KV "labels") — ผู้ใช้ที่อนุมัติแล้วทุกคนอ่าน / แก้ได้ ----------
+async function readLabels(env, fresh = false) {
+  const hit = memCache.get(LABELS_KV_KEY);
+  if (!fresh && hit && Date.now() - hit.time < LABELS_CACHE_SECONDS * 1000) return hit.value;
+  const value = (await env.USERS.get(LABELS_KV_KEY, "json")) || {};
+  memCache.set(LABELS_KV_KEY, { time: Date.now(), value });
+  return value;
+}
+
+// ส่งให้หน้าเว็บแค่ข้อความ (ไม่ส่งอีเมลของคนที่แก้)
+const publicLabels = (labels) => Object.fromEntries(Object.entries(labels).map(([device, v]) => [device, v.text]));
+
+async function labelsGet(request, env, cors) {
+  await requireApproved(request, env);
+  return json({ labels: publicLabels(await readLabels(env)) }, 200, cors);
+}
+
+async function labelsPost(request, env, cors) {
+  const user = await requireApproved(request, env);
+  const body = await readJson(request);
+  const device = String(body.device || "");
+  const text = String(body.label ?? "").replace(/\s+/g, " ").trim();
+  if (!DEVICE_RE.test(device)) throw new HttpError(400, "bad device");
+  if (text.length > LABEL_MAX || !LABEL_RE.test(text)) throw new HttpError(400, "bad label");
+  const labels = { ...(await readLabels(env, true)) };
+  if (text) labels[device] = { text, by: user.email, at: new Date().toISOString() };
+  else delete labels[device];
+  await env.USERS.put(LABELS_KV_KEY, JSON.stringify(labels));
+  memCache.set(LABELS_KV_KEY, { time: Date.now(), value: labels });
+  return json({ labels: publicLabels(labels) }, 200, cors);
 }
 
 async function appsScriptJson(env, query) {

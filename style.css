@@ -167,6 +167,7 @@ body.live-mode #dropzone, body.live-mode .sample-line { display: none; }
 .live-back { color: var(--primary); text-decoration: none; font-size: 0.9rem; }
 .live-back:hover { text-decoration: underline; }
 .live-device { font-size: 1.35rem; }
+.live-label { color: var(--muted); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .live-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
 .live-controls label { display: flex; flex-direction: column; font-size: 0.85rem; color: var(--muted); }
 .live-controls select {
@@ -174,7 +175,7 @@ body.live-mode #dropzone, body.live-mode .sample-line { display: none; }
   border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
 }
 .live-info { margin: 0; }
-.range-available { margin: -4px 0 8px; }
+.range-available { margin: 8px 0 10px; } /* เว้นจากช่องเลือกวันที่ (ผู้ใช้ขอ — เดิมชิดจนดูติดกัน) */
 .range-available .range-error { color: #E5484D; font-weight: 600; }
 .page-nav .nav-current a { color: inherit; text-decoration: none; }
 .page-nav .nav-current a:hover { color: var(--primary); }
@@ -218,7 +219,26 @@ body.live-mode #dropzone, body.live-mode .sample-line { display: none; }
 .device-info dt { color: var(--muted); }
 .device-info dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
 .device-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.device-head strong { font-size: 1.15rem; }
+.device-head strong { font-size: 1.15rem; flex: none; }
+.device-head .status-pill { flex: none; }
+/* คำอธิบายเครื่อง: บรรทัดใต้ชื่อ (ชิดชื่อ — ลดช่องว่างของการ์ด) ยาวเกิน = … */
+.device-tag, .device-tag-form { margin-top: -8px; min-height: 26px; }
+.device-tag { min-width: 0; display: flex; align-items: center; gap: 2px; }
+.device-tag-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9rem; font-weight: 600; color: var(--muted); }
+.device-tag-edit.empty { padding-left: 0; font-size: 0.8rem; opacity: 0.75; }
+.device-tag-edit, .device-tag-btn {
+  flex: none; font: inherit; font-size: 0.85rem; line-height: 1; padding: 4px 6px; border-radius: 6px; cursor: pointer;
+  color: var(--muted); background: none; border: 1px solid transparent;
+}
+.device-tag-edit:hover, .device-tag-btn:hover { color: var(--primary); border-color: var(--border); background: var(--bg); }
+.device-tag-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.device-tag-form { min-width: 0; display: flex; align-items: center; gap: 2px; }
+.device-tag-form input {
+  flex: 1; min-width: 0; font: inherit; font-size: 0.85rem; padding: 3px 6px; border-radius: 6px;
+  color: var(--text); background: var(--bg); border: 1px solid var(--primary);
+}
+.device-tag-form input.invalid { border-color: #E5484D; }
+.device-tag-hint { margin: -8px 0 0; font-size: 0.78rem; font-weight: 600; color: #E5484D; }
 .device-label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 6px; }
 .device-preview { min-width: 0; }
 .device-plot { width: 100%; height: 200px; border-radius: 8px; background: var(--bg); cursor: crosshair; }
