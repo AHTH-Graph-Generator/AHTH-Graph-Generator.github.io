@@ -56,6 +56,8 @@ export const Y_AXIS_RANGE = [-60, 60];
 // heater:   heater — column = สั่งงาน ON/OFF (0/1), stateColumn = state (HeaterANone / Off / On) ดู heaterCategory()
 // absentWith: key ของเซนเซอร์ — ถ้าตู้ **มี** เซนเซอร์นี้ = ไม่มีชิ้นส่วนนี้ (ตรงข้ามกับ requires)
 // dash:     เส้นประ
+// smooth:   kind "line" ที่วาดเป็นเส้นปกติ (ไม่ใช่ขั้นบันได) ช่วงไม่มีข้อมูลเว้นว่างเหมือนเซนเซอร์ (HUM sensor)
+// percentAxis: แสดงแกน % ด้านขวาของกราฟเมื่อมีรายการนี้ในตู้ (ดู HUM_AXIS)
 // shape:   "dot" จุดทึบ / "cross" กากบาท / "circle" วงกลมโปร่ง / "dash" ขีด "-"
 // display: วิธีแสดงช่อง "ค่า ณ เคอร์เซอร์" (ดู cursorText ใน main.js)
 // column:  คอลัมน์ในไฟล์ (softwareChange ไม่มี — มาจากจุดที่เวอร์ชันซอฟต์แวร์เปลี่ยน)
@@ -63,6 +65,10 @@ export const Y_AXIS_RANGE = [-60, 60];
 const ICE_MAKER_BLUE = "rgb(0, 90, 255)";
 // สีพัดลม (ผู้ใช้กำหนด) — ใช้ทั้งเส้นพัดลมและเส้น Fan In/Out
 const FAN_COLORS = { refrigeratorFan: "rgb(153, 153, 0)", freezerFan: "rgb(153, 76, 0)" };
+// HUM sensor (ความชื้น %) — เทาอมฟ้า (ผู้ใช้ให้ลอง 2026-11-09: ส้มเดิมกลืนกับพัดลม / heater) ใช้ทั้งเส้น, ชื่อแกน และ HUM sensor error
+const HUM_COLOR = "rgb(120, 144, 156)";
+// HUM 0–100 % วาดบนแกน °C ที่ 0 (0 %) ถึง 50 (100 %) — ผู้ใช้เลือก 2026-11-09 (เดิม -50…50 ทับเส้นอุณหภูมิทั้งกราฟ ลายตา) → เส้นตาราง 10 °C = 20 %, มีแกน % ด้านขวา (percentAxis)
+export const HUM_AXIS = { raw: [0, 100], y: [0, 50] };
 // เลข 8 บิตไม่มีเครื่องหมาย → มีเครื่องหมาย: 0–127 คงเดิม, 128–255 → ลบ 256 (เช่น 234 → -22)
 export const toSigned8 = (v) => (v > 127 && v <= 255 ? v - 256 : v);
 
@@ -123,13 +129,18 @@ function sensorError(sensorKey, name) {
 // tolerance = ยอมให้ค่าเปลี่ยนได้ rate × ระยะเวลา × slack + 1 (rate = ความเร็วการนับปกติของไฟล์ ต่อวินาที)
 // gapMatch: ช่วงข้อมูลหาย — ตัวนับต้องเพิ่มอย่างน้อยเท่านี้ของเวลาที่ผ่านไป ถึงถือว่าตู้ทำงานต่อเนื่อง (ไฟไม่ได้ดับ)
 // minCounts: ช่วงที่ตัวนับควรเพิ่มไม่ถึงเท่านี้ = สั้นเกินกว่าจะตัดสินว่าไฟดับ → ถือเป็นข้อมูลหาย
-export const POWER_COUNTER = { max: [65535, 4294967295], slack: 2, gapMatch: 0.9, minCounts: 2 };
+// zeroHold: ค่า 0 ค้างได้ไม่เกิน zeroHold × เวลาต่อ 1 ค่า (≈ 60 วินาที × 1.05) — เกิน = reset ซ้ำ (ผู้ใช้กำหนด 2026-11-09: เกินรอบเดียวก็ถือว่า reset)
+export const POWER_COUNTER = { max: [65535, 4294967295], slack: 2, gapMatch: 0.9, minCounts: 2, zeroHold: 1.05 };
 
 // ---------- Power: หาแถวที่ตัวนับ reset ----------
 // ใช้ทั้งหน้าเว็บ (เส้น Power) และ worker (ช่วงไฟดับ = ช่วงที่ไม่มีข้อมูล ระหว่างแถวก่อนหน้ากับแถวที่ reset)
 // ตัวนับนับขึ้น: ค่าลดลงจากแถวก่อน = reset (ไฟดับแล้วเปิดใหม่ — sampling ห่างก็ยังเห็น แม้ไม่เจอค่า 0)
 //   ยกเว้นแถวก่อนอยู่ใกล้ค่าเต็ม (65535 …) จนนับเกินแล้ววนกลับได้ในช่วงนั้น = นับเกิน ไม่ใช่ reset
-//   ค่า 0 = ยังไม่เริ่มนับหลัง reset → ถือเป็น reset ด้วย
+//   ค่า 0 ต่อกันหลายแถว (ผู้ใช้กำหนด 2026-11-09): ตัวนับหน่วยนาที + sampling ถี่ (เช่น 1–10 วินาที) → หลัง reset ค่า 0 ซ้ำได้ ~60 วินาทีแล้วเป็น 1
+//     = การนับปกติ ไม่ใช่ reset ซ้ำ → Power ON · reset = เฉพาะแถวที่ค่าตกลงมา (เช่น 89 → 0)
+//     ค้างที่ 0 นานเกิน 1 รอบนับ (POWER_COUNTER.zeroHold × เวลาต่อ 1 ค่าของไฟล์ — ไม่รู้ = 60 วินาที) = ไฟดับซ้ำ → reset
+//     เช่น sampling 1 วินาที: 0 × 60 แถว → 1 = ปกติ · 0 × 70 แถว = เปิดมา 10 วินาทีแล้วดับอีก → แถว 1–10 (ต้นช่วง) เป็น reset
+//     แถวแรกของไฟล์เป็น 0 = เพิ่งเปิดเครื่อง → reset
 // ตัวนับนับถอยหลัง (ไฟล์บางรุ่น ค่าลดทีละ 1 ต่อวินาทีเป็นปกติ): reset = ค่าลดลงเร็วกว่าการนับปกติมาก
 // คืน Float32Array: 1 = reset, 0 = ปกติ, NaN = ไม่มีค่า
 export function counterResets(times, raw) {
@@ -137,20 +148,37 @@ export function counterResets(times, raw) {
   const reset = new Float32Array(n).fill(NaN);
   const { counting, rate, max } = counterProfile(times, raw);
   const allowance = (dt) => rate * Math.max(dt, 1) * POWER_COUNTER.slack + 1;
+  const period = rate > 0 ? 1 / rate : 60; // เวลาต่อ 1 ค่า (วินาที) — ProTestTimer ≈ 60
+  const zeroHold = POWER_COUNTER.zeroHold * period; // ค่า 0 ค้างได้นานเท่านี้ก่อนนับเป็น 1
 
-  let prev = NaN, prevT = NaN;
+  // ช่วงค่า 0 ที่เริ่มจากค่าตกลงมา: ค้างนานเกินรอบนับ = ไฟดับซ้ำ "ตอนต้นช่วง" (ผู้ใช้กำหนด 2026-11-09)
+  //   เช่น sampling 1 วินาที 0 × 70 → 1: เปิดมา 10 วินาทีแล้วดับอีก → แถว 1–10 = reset (Power ตก), 60 แถวหลัง = นับปกติ (ON)
+  //   = แถวที่เวลา < เวลาที่ค่าเป็น 1 − เวลาต่อ 1 ค่า · ยังไม่เป็น 1 จนจบไฟล์ = ตัดสินไม่ได้ ตกเฉพาะแถวที่ค่าตกลงมา
+  const closeZeroRun = (zi, endTime) => {
+    if (endTime - times[zi] <= zeroHold) return;
+    for (let j = zi; j < n && times[j] < endTime - period; j++) if (raw[j] === 0) reset[j] = 1;
+  };
+
+  let prev = NaN, prevT = NaN, zeroStart = -1; // zeroStart = index แถวแรกของช่วงค่า 0 ที่เริ่มจากค่าตกลงมา (-1 = ไม่มี)
   for (let i = 0; i < n; i++) {
     const v = raw[i];
     if (Number.isNaN(v)) continue;
     const dt = times[i] - prevT;
     let isReset = false;
     if (counting > 0) {
-      if (v === 0) isReset = true;
-      else if (v < prev) isReset = prev + allowance(dt) < max; // ใกล้ค่าเต็ม = นับเกินแล้ววนกลับ
+      if (v === 0 && prev === 0) isReset = false; // ค่า 0 ซ้ำ = นับปกติ (ตัดสินตอนจบช่วงใน closeZeroRun)
+      else if (v === 0) {
+        isReset = Number.isNaN(prev) || prev + allowance(dt) < max; // ตกลงมาเป็น 0 (ใกล้ค่าเต็ม = นับเกินแล้ววนกลับ)
+        zeroStart = isReset && !Number.isNaN(prev) ? i : -1; // แถวแรกของไฟล์: ไม่รู้ว่าช่วง 0 เริ่มเมื่อไร
+      } else {
+        if (prev === 0 && zeroStart >= 0) closeZeroRun(zeroStart, times[i]);
+        zeroStart = -1;
+        if (v < prev) isReset = prev + allowance(dt) < max; // ใกล้ค่าเต็ม = นับเกินแล้ววนกลับ
+      }
     } else if (v < prev) {
       isReset = prev - v > allowance(dt);
     }
-    reset[i] = isReset ? 1 : 0;
+    if (reset[i] !== 1) reset[i] = isReset ? 1 : 0;
     prev = v; prevT = times[i];
   }
   return reset;
@@ -302,6 +330,11 @@ export const STATUS_ITEMS = [
   // ถ้า IceMachine.temp.InC เป็น 0 ทั้งไฟล์ = ไม่มี Ice maker (0 = ไม่มี ไม่ใช่เปิด) → ไม่วาด
   { key: "iceMakingDial", column: "IceMachine.iceOFF", group: "control", kind: "marker", shape: "circle", color: ICE_MAKER_BLUE, y: 49,
     th: "Ice making mode", en: "Ice making mode", display: "dial", drawWhen: "zero", requires: "iceMachine" },
+  // ---- SENSOR: HUM sensor (ความชื้น) IceCream.timer 0–100 % — เส้นปกติ (smooth ไม่ใช่ขั้นบันได) ช่วงขาดเว้นว่างเหมือนเซนเซอร์อุณหภูมิ
+  //   behind: เส้นบาง วาดก่อนทุกเส้น (อยู่ก่อน cutTemp ในรายการ = หลังสุดจริง) — ผู้ใช้ขอ 2026-11-09 ไม่ให้บังเส้นอื่น
+  //   ค่า ณ เคอร์เซอร์ / Min / Max / เฉลี่ย = % ตามค่าในไฟล์ (ไม่หาร), 0 ทั้งไฟล์ = ไม่มีเซนเซอร์นี้
+  { key: "humSensor", column: "IceCream.timer", group: "sensor", kind: "line", smooth: true, percentAxis: true, behind: true, color: HUM_COLOR,
+    th: "HUM sensor", en: "HUM sensor", rawRange: HUM_AXIS.raw, yRange: HUM_AXIS.y, display: "percent", allZeroMeansAbsent: true },
   // ---- TEMP: ค่าตัด/ต่อ (cut-in / cut-out) — เส้นประบางๆ อยู่หลังสุด สีตามเซนเซอร์/พัดลมที่เกี่ยวข้อง ----
   cutTemp("refrigeratorCoolIn",  "Cabin[0].coolCutInTemp",  "Refrigerator cool In",  "fcAir"),
   cutTemp("refrigeratorCoolOut", "Cabin[0].coolCutOutTemp", "Refrigerator cool Out", "fcAir"),
@@ -320,7 +353,7 @@ export const STATUS_ITEMS = [
   heater("gtHeater",       1, "C", "GT heater",        "rgb(60, 179, 113)", true),
   // ---- ERROR: กากบาทเล็กที่ Y = 53 เมื่อ ≠ 0 (เหมือน Ice making sensor error) ----
   // คอลัมน์จริงขึ้นกับเฟิร์มแวร์ — ตัดสินด้วย highTempShifted() (highTempLayout: true)
-  { key: "highTempError", column: "errHighTemp", group: "error", kind: "marker", shape: "cross", color: "rgb(127, 0, 255)", y: 53,
+  { key: "highTempError", column: "errHighTemp", group: "error", kind: "marker", shape: "cross", color: "rgb(232, 62, 140)", y: 53,
     th: "High temp error", en: "High temp error", display: "error", highTempLayout: true },
   // ใช้ตัดสินว่าชื่อคอลัมน์ไบต์ 73 เลื่อนไหม (ไม่แสดงเอง) — ดู HIGH_TEMP_LAYOUT
   { key: "doorsClosedBit", column: "doorsClosed", kind: "hidden", optional: true },
@@ -331,6 +364,10 @@ export const STATUS_ITEMS = [
   sensorError("fzAir", "Freezer sensor error"),
   sensorError("fcEva", "Refrigerator Evap sensor error"),
   sensorError("fzEva", "Freezer Evap sensor error"),
+  sensorError("iceCream", "Ambient sensor error"),
+  // HUM sensor error: IceCream.counter ≠ 0 = error (ผู้ใช้กำหนด 2026-11-09) — ไม่มี HUM sensor = ไม่เลือก
+  { key: "humSensorError", column: "IceCream.counter", group: "error", kind: "marker", shape: "cross", color: HUM_COLOR, y: 53,
+    th: "HUM sensor error", en: "HUM sensor error", display: "error", requires: "humSensor" },
   // IceMachine.temp.Err: 0 = ปกติ, 1 = error
   { key: "iceMakingError", column: "IceMachine.temp.Err", group: "error", kind: "marker", shape: "cross", color: ICE_MAKER_BLUE, y: 53,
     th: "Ice making sensor error", en: "Ice making sensor error", display: "error", requires: "iceMachine" },

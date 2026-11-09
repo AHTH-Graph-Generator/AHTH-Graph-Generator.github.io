@@ -173,7 +173,7 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:v
 
 <main>
 <header class="hero">
-  <div class="eyebrow">AHTH Graph Generator · Release 3.0 · คู่มือนักพัฒนา</div>
+  <div class="eyebrow">AHTH Graph Generator · Release 3.1 · คู่มือนักพัฒนา</div>
   <h1>สร้างเว็บกราฟอุณหภูมิตู้เย็น <em>ตั้งแต่ไฟล์ log ถึง Monitoring</em></h1>
   <p class="lede">เอกสารสำหรับศึกษาด้วยตัวเองว่าเว็บ <code>ahth-graph-generator.github.io</code> ทำงานอย่างไรและเขียนขึ้นอย่างไร ตัวอย่างโค้ดทุกชิ้นมาจากไฟล์จริงในโปรเจกต์ บท 1–4 เป็นภาพรวมและกฎ บท 5–15 อธิบายหน้าวิเคราะห์ไฟล์ Log ตั้งแต่อ่านไฟล์จนวาดกราฟ บท 16–21 อธิบายระบบ Monitoring (ESP32 → Google Drive → Apps Script → Worker → เว็บ) บท 22–26 เป็นงานประจำ: รันในเครื่อง เพิ่มรายการ ทดสอบ และปล่อยเวอร์ชัน</p>
   <div class="cols" style="margin-top:20px">
@@ -287,7 +287,7 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:v
 <h2><span class="num">04</span>ส่วนที่ทุกหน้าใช้ร่วมกัน</h2>
 <p class="sub">หัวเว็บ ท้ายเว็บ ภาษา โหมดสว่าง/มืด เลขเวอร์ชัน และ time zone ทุกหน้าเรียก <code>initSite()</code> ครั้งเดียวตอนเริ่ม</p>
 <div class="code"><div class="hd"><span>js/site.js · initSite</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="c">// เวอร์ชันที่แสดงบนหัวเว็บ — เปลี่ยนตรงนี้ที่เดียวทุกครั้งที่ release</span>
-<span class="k">export const</span> APP_VERSION = <span class="s">"3.0"</span>;
+<span class="k">export const</span> APP_VERSION = <span class="s">"3.1"</span>;
 
 <span class="k">export function</span> initSite() {
   <span class="k">try</span> {
@@ -599,6 +599,14 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:v
 <h3>9.3 Reset ของตัวนับ (<code>counterResets()</code>)</h3>
 <p>Reset = ค่าน้อยกว่าแถวก่อน (ไม่ใช่ดูค่า 0 เพราะ sampling 10 นาทีอาจไม่เห็น 0) <b>ยกเว้น</b>การนับจนเต็ม (65535 → 0) ซึ่งเป็นการนับเกิน ตัดสินจากแถวก่อนอยู่ใกล้ค่าเต็มพอจะนับเกินได้ในเวลานั้น บางไฟล์นับถอยหลัง จึงตัดสินทิศการนับจากทั้งไฟล์</p>
 <div class="note bad"><b class="t">บั๊กที่เคยเกิด (แก้ 2026-11-04)</b>ความเร็วการนับห้ามใช้ median ของ "ค่าที่เพิ่ม ÷ เวลาระหว่างแถว" เพราะ log 1 วินาทีบันทึกทุกวินาทีแต่ตัวนับเดินทีละนาที จะได้ค่าที่เร็วเกินจริง 60 เท่า แล้วช่วงข้อมูลหายถูกตัดสินเป็นไฟดับ ต้องใช้ ค่าที่เพิ่มทั้งหมด ÷ เวลาทั้งหมด (<code>counterProfile()</code>)</div>
+<h4>ค่า 0 ซ้ำหลัง reset</h4>
+<p>ProTestTimer นับเป็นนาที ถ้า sampling 1 วินาที ค่า 0 จะซ้ำราว 60 แถวก่อนเป็น 1 ซึ่งเป็นการนับปกติ จึงนับ reset <b>เฉพาะแถวที่ค่าตกลงมา</b> (เช่น 89 → 0)</p>
+<p>ถ้าค่า 0 ค้างนานเกิน 1 รอบนับ (<code>POWER_COUNTER.zeroHold</code> 1.05 × เวลาต่อ 1 ค่า) แปลว่าไฟดับซ้ำ<b>ตอนต้นช่วง</b>:</p>
+<ul>
+<li>ตัวอย่าง: 0 × 70 → 1 คือเปิดมา 10 วินาทีแล้วดับอีก แถว 1–10 จึงเป็น reset และ 60 แถวหลังเป็น ON</li>
+<li>ตัดสินได้ตอนเห็นค่า 1 เท่านั้น (<code>closeZeroRun()</code> ย้อนกลับไปติดป้าย reset ให้แถวต้นช่วง)</li>
+<li>ช่วงค่า 0 ที่ยังไม่เป็น 1 จนจบไฟล์ ตัดสินไม่ได้ จึงตกเฉพาะแถวที่ค่าตกลงมา</li>
+</ul>
 </section>
 
 <!-- 10 -->
@@ -686,6 +694,8 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:v
 <dt>requires / absentWith / allZeroMeansAbsent</dt><dd>กฎ "ไม่มีชิ้นส่วนนี้ในตู้" → checkbox ว่าง + N/A เช่น ไม่มี Ice maker → Ice making mode, First ice; มี Refrigerator Evap → ใช้ Valve ไม่ใช่ Damper</dd>
 <dt>temp / signed8 / scale</dt><dd>แปลงค่า: × 0.1 °C / 234 → −22 / คูณค่า</dd>
 <dt>dash / behind</dt><dd>เส้นประ / วาดก่อนเส้นอื่น (อยู่หลังสุด)</dd>
+<dt>smooth</dt><dd><code>kind: "line"</code> ที่วาดเป็นเส้นปกติ (ไม่ใช่ขั้นบันได) ช่วงขาดเว้นว่างเหมือนเซนเซอร์ เช่น HUM sensor (ความชื้น)</dd>
+<dt>percentAxis</dt><dd>มีรายการนี้ในตู้ = แสดงแกน % ด้านขวาของกราฟ (ดู 12.4)</dd>
 </dl>
 <h3>11.5 ตำแหน่ง Y ของ marker บนสุด (ห้ามวางทับกัน)</h3>
 <div class="tblw"><table>
@@ -721,6 +731,18 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:v
 </table></div>
 <h3>12.3 ผู้ดูเปลี่ยนสีเองได้</h3>
 <p>กดที่ภาพลักษณะหน้าชื่อรายการ เปิดกล่องเลือกสีของเว็บ (ไม่ใช้ <code>&lt;input type="color"&gt;</code> เพราะบน Windows บางเครื่องเปิดหน้าต่างกลางจอ ปิดยาก) คลิก/ลาก = ลองสี, ดับเบิลคลิก = เลือกแล้วปิด สีจำใน localStorage <code>seriesColors</code> เฉพาะเครื่องนั้น ค่าเริ่มต้นยังเป็นสีในตาราง โค้ด: <code>colorOf()</code> <code>openColorPopover()</code> <code>setItemColor()</code></p>
+<h3>12.4 แกนที่ 2 ด้านขวา (% ของ HUM sensor)</h3>
+<p>กราฟมีแกน Y แกนเดียว (°C คงที่ −60…60) แต่ HUM sensor มีหน่วยเป็น % 0–100 ถ้า ÷10 จะทับเส้นตู้เย็นที่ 3–8 °C จึงใช้วิธีนี้:</p>
+<ul>
+<li>วาด HUM บน scale เดิม ที่ 0 (0 %) ถึง 50 (100 %) ด้วย <code>rawRange</code> / <code>yRange</code> (<code>HUM_AXIS</code>) เส้นตาราง 10 °C จึงตรงกับ 20 % (ครึ่งบนของกราฟ — แบบ −50…50 ที่ลองก่อนทับเส้นอุณหภูมิทั้งกราฟ ลายตา)</li>
+<li>เพิ่ม axis ที่ <code>side: 1</code> (ขวา) ใช้ scale <code>y</code> ตัวเดียวกัน</li>
+<li>กำหนด <code>splits</code> เองทุก 20 % และแปลงตัวเลขกลับเป็น % ใน <code>values</code></li>
+<li>ปิด grid ของแกนนี้ (<code>percentAxis()</code> ใน chart.js)</li>
+</ul>
+<div class="code"><div class="hd"><span>js/chart.js · percentAxis (ย่อ)</span><button type="button" data-copy>คัดลอก</button></div><pre>{ ...axisStyle, side: <span class="n">1</span>, grid: { show: <span class="k">false</span> },
+  splits: () =&gt; [<span class="n">0</span>, <span class="n">10</span>, <span class="n">20</span>, <span class="n">30</span>, <span class="n">40</span>, <span class="n">50</span>],
+  values: (u, ticks) =&gt; ticks.map((v) =&gt; <span class="s">`${v * 2}%`</span>) }</pre></div>
+<p>ข้อดีคือไม่ต้องมี scale ที่ 2 ทำให้ zoom / เลือกช่วง / โน้ต ทำงานเหมือนเดิมทุกอย่าง และแสดงแกนขวาเฉพาะไฟล์ที่มี HUM (<code>handlers.percentAxis</code>) ชื่อแกน "HUM (%)" เหนือขีด 100 % วาดลง canvas ใน hook <code>draw</code> (<code>drawAxisTitle()</code>) สีตามเส้น จึงติดไปกับรูปที่บันทึกด้วย</p>
 </section>
 
 <!-- 13 -->
@@ -1193,7 +1215,7 @@ devices[k] = {
 </ol>
 <div class="code"><div class="hd"><span>terminal</span><button type="button" data-copy>คัดลอก</button></div><pre>git status
 git add -A
-git commit -m "AHTH graph generator website for update to github - Ver. 3.0"
+git commit -m "AHTH graph generator website for update to github - Ver. 3.1"
 git push origin main</pre></div>
 <div class="note"><b class="t">ทำงานกับ Claude Code</b>Claude อ่าน CLAUDE.md ทุกครั้งที่เริ่ม session และเพิ่มกฎใหม่ลงไปเอง แต่ไม่ commit / push เอง ต้องสั่งในแชทครั้งนั้นๆ สั่งงานให้ชัด: ชื่อคอลัมน์ตรงตัว ชื่อที่แสดง สี RGB ตำแหน่ง Y หัวข้อ และความหมายของค่าแต่ละค่า</div>
 </section>
@@ -1212,7 +1234,7 @@ git push origin main</pre></div>
 <details><summary>เลือกช่วงย้อนหลังแล้วขึ้น "ระบบยังไม่รองรับ…"</summary><div>Worker / Apps Script ยังเป็นรุ่นเก่า (ไม่มี <code>/range</code>) → deploy ทั้ง 2 ตัวใหม่ตามบท 18–19</div></details>
 <details><summary>ลอยปากกาแล้วเคอร์เซอร์ไม่ขยับ</summary><div>เปิดด้วย <code>?pentest</code> แล้วลอยปากกา ถ้ากล่องมุมล่างซ้ายไม่ขึ้นอะไร = อุปกรณ์ไม่ส่ง hover</div></details>
 <details><summary>.xlsx อ่านไม่ได้</summary><div>เป็น .xls รุ่นเก่า หรือไฟล์เสีย → Save As เป็น .xlsx หรือ .csv</div></details>
-<footer>เอกสารนี้สรุปจากโค้ด Release 3.0 และ <code>CLAUDE.md</code> · ต้นฉบับ <code>docs/developer-guide.html</code> · ถ้าโค้ดกับเอกสารไม่ตรงกัน ให้เชื่อ CLAUDE.md และโค้ด · เอกสารประกอบใน repo: <code>docs/WORKFLOW.md</code>, <code>docs/GUIDE.md</code>, <code>docs/MONITORING-SETUP.md</code></footer>
+<footer>เอกสารนี้สรุปจากโค้ด Release 3.1 และ <code>CLAUDE.md</code> · ต้นฉบับ <code>docs/developer-guide.html</code> · ถ้าโค้ดกับเอกสารไม่ตรงกัน ให้เชื่อ CLAUDE.md และโค้ด · เอกสารประกอบใน repo: <code>docs/WORKFLOW.md</code>, <code>docs/GUIDE.md</code>, <code>docs/MONITORING-SETUP.md</code></footer>
 </section>
 </main>
 </div>

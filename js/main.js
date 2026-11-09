@@ -2,7 +2,7 @@
 // main.js — จุดเริ่มต้นของหน้า Log analyzer (analyze.html) ผูก UI กับ parser / chart / stats
 // ============================================================
 
-import { SENSORS, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN, VALVE_POSITIONS, DAMPER_OPEN, HEATER_STATE, GAP_COLORS, counterResets, highTempShifted, formatWorkMode, formatDateTime, toInputValue, fromInputValue,
+import { SENSORS, STATUS_ITEMS, SOFTWARE_COLUMNS, WORK_MODE_COLUMN, VALVE_POSITIONS, DAMPER_OPEN, HEATER_STATE, GAP_COLORS, HUM_AXIS, counterResets, highTempShifted, formatWorkMode, formatDateTime, toInputValue, fromInputValue,
   FILE_TIME_ZONE, listTimeZones, setDisplayTimeZone, getDisplayTimeZone, zoneOffsetLabel } from "./logformat.js";
 import { indexRange, computeStats } from "./stats.js";
 import { createChart, toPlotValues } from "./chart.js";
@@ -314,7 +314,9 @@ function onParsed(fileName, result, notes, keep = null, range = null) {
 // เซนเซอร์นี้มีจริงในตู้ไหม (มีคอลัมน์และไม่เป็น 0 ทั้งไฟล์)
 function hasSensor(result, key) {
   const sensor = result.series.find((s) => s.key === key);
-  return !!sensor && !sensor.allZero;
+  if (sensor) return !sensor.allZero;
+  const raw = result.status[key]; // เซนเซอร์ที่อยู่ใน STATUS_ITEMS (HUM sensor)
+  return !!raw && !isAllZero(raw);
 }
 
 const isAllZero = (raw) => raw.every((v) => v === 0 || Number.isNaN(v));
@@ -404,7 +406,7 @@ function highTempRaw(result) {
 
 // { edge, middle, lost } ค่าที่วาดที่แถวขอบไฟดับ / กลางไฟดับ / ข้อมูลหาย (null = ไม่วาด) หรือ null ถ้าไม่ต้องแก้
 function gapPlotValues(item) {
-  if (item.kind !== "line" || item.meta.temp) return null;
+  if (item.kind !== "line" || item.meta.temp || item.meta.smooth) return null; // เส้นแบบเซนเซอร์: เว้นว่าง
   if (item.meta.counterReset) return { edge: item.meta.yWhenZero, middle: item.meta.yWhenZero, lost: item.meta.yOtherwise };
   return { edge: toStepValues([0], item.meta)[0], middle: null, lost: null }; // ตำแหน่งของค่า 0 = OFF / ปิด
 }
@@ -430,7 +432,7 @@ const gapRowKind = (idx) => (loaded.result.gapRows ? loaded.result.gapRows[idx] 
 // ชิ้นส่วน / System state / Heater = OFF เฉพาะจุดขอบของช่วงไฟดับ (ตรงกับที่วาด) — นอกนั้น "–"
 function gapCursorText(item, kind) {
   if (item.meta.group === "control") return "N/A";
-  if (item.kind !== "line" || item.meta.temp) return "–";
+  if (item.kind !== "line" || item.meta.temp || item.meta.smooth) return "–";
   if (item.meta.counterReset) return kind <= 2 ? "OFF" : "ON";
   if (kind !== 1) return "–";
   if (item.meta.heater) return "OFF";
@@ -900,7 +902,7 @@ function buildChart() {
       item.seriesIndex = seriesList.length;
       seriesList.push({
         label: item.meta.en, color: colorOf(item), values: item.values, show: item.show,
-        stepped: item.kind === "line", dash: !!item.meta.dash,
+        stepped: item.kind === "line" && !item.meta.smooth, dash: !!item.meta.dash,
         width: item.meta.behind ? 1 : undefined, // เส้นบางๆ
       });
     }
@@ -908,12 +910,19 @@ function buildChart() {
   chart = createChart(el.chart, result.times, seriesList,
     { onRange: updateRange, onCursor: updateCursor, onSelect: updateStats, formatDuration: fmtDuration,
       onDoublePick: showRawData,
+      percentAxis: percentAxisOf(items),
       gaps: result.gaps, gapLabel: (gap) => t(gap.powerOff ? MSG.gapPowerOff : MSG.gapNoData), gapColor: (gap) => (gap.powerOff ? GAP_COLORS.powerOff : GAP_COLORS.noData) },
     markerLayers, loaded.notes);
   // สร้างกราฟใหม่ (เปลี่ยนโหมดสว่าง/มืด) → คงโหมดวาดและสีเดิม
   chart.setDrawColor(drawState.color);
   chart.setDrawMode(drawState.mode);
   updateRange(...chart.getRange());
+}
+
+// แกน % ด้านขวา: มี HUM sensor ในตู้ → ตำแหน่งแกน + ชื่อ "HUM (%)" สีตามเส้น (ผู้ดูเปลี่ยนสีได้)
+function percentAxisOf(items) {
+  const item = items.find((i) => i.meta.percentAxis && !i.absent);
+  return item ? { ...HUM_AXIS, title: "HUM (%)", color: colorOf(item), series: item.seriesIndex + 1 } : null;
 }
 
 // ---------- Real data: ตารางค่าดิบจากไฟล์ในช่วงที่เลือก (หรือช่วงที่แสดงถ้าไม่ได้เลือก) ----------
@@ -1091,7 +1100,7 @@ function createSwatch(item) {
       .forEach(([k, v]) => node.setAttribute(k, v));
     svg.append(node);
   };
-  const shape = item.kind === "sensor" ? "line" : item.meta.temp ? "thinDash" : item.kind === "line" ? "step" : item.meta.shape;
+  const shape = item.kind === "sensor" || item.meta.smooth ? "line" : item.meta.temp ? "thinDash" : item.kind === "line" ? "step" : item.meta.shape;
   if (shape === "line") add("line", { x1: 1, y1: 5, x2: 15, y2: 5, "stroke-width": 3 });
   else if (shape === "thinDash") add("line", { x1: 1, y1: 5, x2: 15, y2: 5, "stroke-width": 1.5, "stroke-dasharray": "3 2" });
   else if (shape === "step") {
@@ -1214,6 +1223,7 @@ function statsText(item, start, end) {
   }
   const s = computeStats(item.raw, start, end);
   if (item.kind === "sensor" || item.meta.temp) return [fmtTemp(s.min), fmtTemp(s.max), fmtTemp(s.avg)];
+  if (item.meta.display === "percent") return [fmtPct(s.min), fmtPct(s.max), fmtPct(s.avg)];
   const avgText = (text) => (item.meta.noAvg ? "–" : text);
   // ค่าจริง = ค่าดิบ × scale (Compressor ×30)
   if (item.meta.scale) {
@@ -1283,6 +1293,7 @@ function cursorText(item, idx) {
     return item.duty ? `ON(${fmtPct(item.duty[idx])})` : "ON";
   }
   if (display === "raw") return fmtRaw(v);
+  if (display === "percent") return fmtPct(v);
   if (display === "temp") return fmtTemp(v);
   if (display === "dial") {
     return v === 1 ? "OFF" : "ON"; // IceMachine.iceOFF: 1 = ปิด, 0 = เปิด

@@ -173,17 +173,20 @@ function insertGaps(times, columns, changeLists, power = null) {
 
 // แถวที่ตัวนับ Power เริ่ม reset → Uint8Array 1 = ตัดก่อนแถวนี้
 //   เฉพาะแถวแรกของช่วงที่ reset ต่อกัน (ตัวนับค้างที่ 0 หลายแถว = ไฟดับครั้งเดียว ไม่ตัดทุกแถว)
+//   และต้องเป็นแถวที่ค่าตกลงมา — ค้างที่ 0 นานจนกลายเป็น reset ไม่ตัดกลางช่วง 0 (แถวห่างกันปกติ ไม่ใช่ช่วงไฟดับ)
 //   ไม่นับแถวแรกของไฟล์ (ไม่มีแถวก่อนหน้าให้ตัด)
 const POWER_KEY = STATUS_ITEMS.find((s) => s.counterReset).key;
 function powerBreaks(times, raw) {
   const reset = counterResets(times, raw);
   const breaks = new Uint8Array(times.length);
   let prevReset = null; // null = ยังไม่เจอค่า
+  let prevValue = NaN;
   for (let i = 0; i < times.length; i++) {
     if (Number.isNaN(raw[i])) continue;
     const isReset = reset[i] === 1;
-    if (prevReset === false && isReset) breaks[i] = 1;
+    if (prevReset === false && isReset && raw[i] < prevValue) breaks[i] = 1;
     prevReset = isReset;
+    prevValue = raw[i];
   }
   return breaks;
 }

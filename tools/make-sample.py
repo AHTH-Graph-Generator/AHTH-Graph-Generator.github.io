@@ -10,6 +10,7 @@ make-sample.py — สร้างไฟล์ log ตัวอย่าง (ข
 """
 
 import argparse
+import math
 import random
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -41,6 +42,7 @@ NAMED_COLUMNS = [
     "errHighTemp", "keyLock",
     "Cabin[0].fanCutInTemp", "Cabin[0].fanCutOutTemp", "Cabin[1].fanCutInTemp", "Cabin[1].fanCutOutTemp",
     "Cabin[0].heaterB", "Cabin[0].heaterC", "Cabin[1].heaterB", "Cabin[1].heaterC",
+    "IceCream.timer", "IceCream.counter",  # HUM sensor (%) + HUM sensor error
     *EMPTY_COLUMNS,
 ]
 
@@ -232,7 +234,11 @@ def make_row(header, t, s, door_open, fz_err, sec):
     values["keyLock"] = "1" if 1800 <= sec % 10800 < 2400 else "0"
     # error อื่นๆ ช่วงสั้นๆ คนละเวลา (ไฟล์ตัวอย่างต้องมีทุกสัญลักษณ์) — เซนเซอร์ที่ error ไม่วาดจุดนั้น
     values["errHighTemp"] = "1" if 9600 <= sec % 10800 < 9660 else "0"
-    for column, start in (("Cabin[0].airTemp", 2000), ("Cabin[0].evaTemp", 3000), ("Cabin[1].evaTemp", 7000)):
+    # HUM sensor (ความชื้น %): 55 ± 12 รอบละ 3 ชม. + เพิ่มขึ้นตอนเปิดประตูตู้เย็น, error สั้นๆ (IceCream.counter)
+    hum = 55 + 12 * math.sin(2 * math.pi * sec / 10800) + (15 if door_open else 0)
+    values["IceCream.timer"] = str(max(0, min(100, round(hum))))
+    values["IceCream.counter"] = "1" if 6200 <= sec % 10800 < 6230 else "0"
+    for column, start in (("Cabin[0].airTemp", 2000), ("Cabin[0].evaTemp", 3000), ("Cabin[1].evaTemp", 7000), ("IceCream.temp", 4000)):
         if start <= sec % 10800 < start + 30:
             values[column + ".Err"] = "1"
             values[column + ".InC"] = "-999"

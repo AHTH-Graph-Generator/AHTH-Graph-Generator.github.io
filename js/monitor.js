@@ -45,7 +45,7 @@ const MSG = {
   software:  { th: "ซอฟต์แวร์", en: "Software" },
   at:        { th: "ข้อมูล ณ", en: "Data at" },
   latest:    { th: "(ล่าสุด)", en: "(latest)" },
-  temps:     { th: "อุณหภูมิ (°C)", en: "Temperature (°C)" },
+  temps:     { th: "เซนเซอร์ (°C / %)", en: "Sensors (°C / %)" },
   preview:   { th: "อุณหภูมิ {h} ชั่วโมงล่าสุด · ชี้บนกราฟเพื่อดูค่า ณ เวลานั้น", en: "Temperature, last {h} h · point at the graph to see values" },
   control:   { th: "แผงควบคุม", en: "Control panel" },
   notPresent:{ th: "ไม่มี", en: "N/A" },
@@ -73,11 +73,15 @@ const MSG = {
                 en: "English only — use A–Z, 0–9, space and - _ . , / ( ) # :" },
   saveFailed:{ th: "บันทึกไม่สำเร็จ ({message})", en: "Could not save ({message})." },
 };
-const SENSOR_ERRORS = ["Cabin[0].airTemp.Err", "Cabin[1].airTemp.Err", "Cabin[0].evaTemp.Err", "Cabin[1].evaTemp.Err"];
+const HUM_ITEM = STATUS_ITEMS.find((s) => s.key === "humSensor");
+const SENSOR_ERRORS = ["Cabin[0].airTemp.Err", "Cabin[1].airTemp.Err", "Cabin[0].evaTemp.Err", "Cabin[1].evaTemp.Err",
+  "IceCream.temp.Err", STATUS_ITEMS.find((s) => s.key === "humSensorError").column];
 // เซนเซอร์บนการ์ด: ลำดับ + ชื่อย่อ (ผู้ใช้กำหนด เฉพาะหน้านี้ — หน้ากราฟเต็มยังใช้ชื่อเต็ม)
 const CARD_SENSORS = [
   ["iceCream", "TC-sensor"], ["fzAir", "F-sensor"], ["fzEva", "FD-sensor"], ["fcAir", "R-sensor"], ["fcEva", "RD-sensor"],
-].map(([key, short]) => ({ ...SENSORS.find((s) => s.key === key), short }));
+].map(([key, short]) => ({ ...SENSORS.find((s) => s.key === key), short }))
+  // HUM sensor (ความชื้น %) ตัวที่ 6 — ไม่ใช่อุณหภูมิ: แสดง % และไม่วาดในกราฟย่อ
+  .concat({ ...HUM_ITEM, err: STATUS_ITEMS.find((s) => s.key === "humSensorError").column, short: "HUM-sensor", percent: true });
 const CONTROL_ITEMS = STATUS_ITEMS.filter((item) => item.group === "control");
 const ICE_MAKER_SENSOR = SENSORS.find((s) => s.key === "iceMachine");
 const SOFTWARE_FIELDS = [...SOFTWARE_COLUMNS.no, SOFTWARE_COLUMNS.version, SOFTWARE_COLUMNS.revision];
@@ -314,7 +318,8 @@ function deviceCard({ name, dev, data, status }) {
     softwareValue.textContent = formatSoftware(SOFTWARE_FIELDS.slice(0, 3).map(v), v(SOFTWARE_FIELDS[3]), v(SOFTWARE_FIELDS[4]));
     timeValue.textContent = `${formatDateTime(row.time)}${row === data.last ? ` ${t(MSG.latest)}` : ""}`;
     tempCells.forEach(({ sensor, value, present: has }) => {
-      value.textContent = !has ? t(MSG.notPresent) : v(sensor.err) !== 0 ? "ERR" : (v(sensor.column) * TEMP_SCALE).toFixed(1);
+      value.textContent = !has ? t(MSG.notPresent) : v(sensor.err) !== 0 ? "ERR"
+        : sensor.percent ? `${v(sensor.column)}%` : (v(sensor.column) * TEMP_SCALE).toFixed(1);
     });
     controlCells.forEach(({ item, li, value }) => {
       const raw = v(item.column);
@@ -468,7 +473,7 @@ const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyV
 
 function drawPreview(name, data, box, fill) {
   if (!uPlot) return;
-  const sensors = CARD_SENSORS.filter((s) => data.rows.some((r) => r.values[col(s.column)] !== 0));
+  const sensors = CARD_SENSORS.filter((s) => !s.percent && data.rows.some((r) => r.values[col(s.column)] !== 0));
   // ช่วงข้อมูลขาด (ห่างเกิน 3 × sampling) ไม่ลากเส้นเชื่อม — rowAt[i] = แถวของจุดที่ i (null = จุดตัดเส้น)
   const deltas = [];
   for (let i = 1; i < data.rows.length; i++) deltas.push(data.rows[i].time - data.rows[i - 1].time);

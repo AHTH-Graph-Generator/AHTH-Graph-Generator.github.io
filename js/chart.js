@@ -457,12 +457,42 @@ function lowerBound(times, target) {
   return lo;
 }
 
+// แกน % ด้านขวา (HUM sensor) — ใช้ scale y เดียวกับ °C: ค่า raw[0]–raw[1] % อยู่ที่ Y y[0]–y[1]
+//   ขีดทุก 20 % ไม่มีเส้นตารางของตัวเอง (ใช้เส้นตารางของแกน °C)
+//   ซ่อนเส้น HUM (checkbox) = ตัวเลขแกนและชื่อแกนหายด้วย (ผู้ใช้กำหนด 2026-11-09 — ตอนนี้มีแค่ HUM ที่ใช้แกนนี้)
+const percentAxisVisible = (u, { series }) => series == null || !!u.series[series]?.show;
+function percentAxis(spec, axisStyle) {
+  const { raw: [r0, r1], y: [y0, y1] } = spec;
+  const step = 20;
+  const splits = [];
+  for (let p = r0; p <= r1; p += step) splits.push(y0 + ((p - r0) * (y1 - y0)) / (r1 - r0));
+  return {
+    ...axisStyle, side: 1, size: 52, grid: { show: false }, ticks: { show: false },
+    splits: () => splits,
+    values: (u, ticks) => ticks.map((v) => (percentAxisVisible(u, spec) ? `${Math.round(r0 + ((v - y0) * (r1 - r0)) / (y1 - y0))}%` : "")),
+  };
+}
+
+// ชื่อแกนขวา "HUM (%)" เหนือขีด 100 % (ระดับบนสุดของกราฟ) สีตามเส้น — วาดบน canvas จึงติดไปกับรูปที่บันทึก
+function drawAxisTitle(u, { title, color }) {
+  const { ctx, bbox } = u;
+  const ratio = window.devicePixelRatio || 1;
+  ctx.save();
+  ctx.font = `bold ${Math.round(12 * ratio)}px "Segoe UI", "Tahoma", "Noto Sans Thai", sans-serif`;
+  ctx.fillStyle = color;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(title, (bbox.left + bbox.width + ctx.canvas.width) / 2, bbox.top);
+  ctx.restore();
+}
+
 /**
  * สร้างกราฟ
  * @param container  element ที่ใส่กราฟ
  * @param times      Float64Array epoch seconds
  * @param seriesList [{ label, color, values (Array, null = ว่าง), show, stepped, dash, width }]
- * @param handlers   { onRange(min, max), onCursor(index | null), onSelect(range | null), formatDuration(seconds), onDoublePick(time) }
+ * @param handlers   { onRange(min, max), onCursor(index | null), onSelect(range | null), formatDuration(seconds), onDoublePick(time),
+ *                    percentAxis: { raw, y, title, color, series } | null (แกน % ด้านขวา + ชื่อแกน, series = index ใน uPlot ของเส้นที่ใช้แกนนี้ — ซ่อนเส้น = ซ่อนแกน) }
  * @param markerLayers [{ shape, color, y, show, drawWhen, raw (ค่าดิบ) | times (เวลาที่วาด) }]
  * @param notes      { strokes: [] } โน้ตที่วาดบนกราฟ (main.js เป็นเจ้าของ — อยู่รอดตอนสร้างกราฟใหม่)
  */
@@ -541,6 +571,7 @@ export function createChart(container, times, seriesList, handlers, markerLayers
     axes: [
       { ...axisStyle },
       { ...axisStyle, size: 56, values: (u, ticks) => ticks.map((v) => `${v}°C`) },
+      ...(handlers.percentAxis ? [percentAxis(handlers.percentAxis, axisStyle)] : []),
     ],
     plugins: [interactionPlugin(times, () => clearSelection(), (time) => {
       if (!drawSettings.mode) handlers.onDoublePick?.(time); // โหมดวาดโน้ต: ไม่เปิด
@@ -565,6 +596,7 @@ export function createChart(container, times, seriesList, handlers, markerLayers
       draw: [(u) => {
         markerLayers.forEach((layer) => layer.show && drawMarkerLayer(u, times, layer));
         if (handlers.gaps?.length) drawGapLabels(u, handlers.gaps, handlers.gapLabel, handlers.gapColor);
+        if (handlers.percentAxis?.title && percentAxisVisible(u, handlers.percentAxis)) drawAxisTitle(u, handlers.percentAxis);
         drawAnnotations(u, notes.strokes); // โน้ตวาดทับบนสุด
       }],
       ready: [(u) => {
@@ -584,7 +616,10 @@ export function createChart(container, times, seriesList, handlers, markerLayers
   observer.observe(container);
 
   return {
-    setVisible: (i, show) => plot.setSeries(i + 1, { show }),
+    setVisible: (i, show) => {
+      plot.setSeries(i + 1, { show });
+      if (handlers.percentAxis) plot.redraw(false, true); // ตัวเลขแกน % ซ่อน/แสดงตามเส้น HUM
+    },
     setMarkerVisible: (i, show) => { markerLayers[i].show = show; plot.redraw(false); },
     setRange: (min, max) => plot.setScale("x", { min, max }),
     resetZoom: () => plot.setScale("x", { min: times[0], max: times[times.length - 1] }),
