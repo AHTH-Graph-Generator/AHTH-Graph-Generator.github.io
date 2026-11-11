@@ -141,6 +141,7 @@ export const POWER_COUNTER = { max: [65535, 4294967295], slack: 2, gapMatch: 0.9
 //     ค้างที่ 0 นานเกิน 1 รอบนับ (POWER_COUNTER.zeroHold × เวลาต่อ 1 ค่าของไฟล์ — ไม่รู้ = 60 วินาที) = ไฟดับซ้ำ → reset
 //     เช่น sampling 1 วินาที: 0 × 60 แถว → 1 = ปกติ · 0 × 70 แถว = เปิดมา 10 วินาทีแล้วดับอีก → แถว 1–10 (ต้นช่วง) เป็น reset
 //     แถวแรกของไฟล์เป็น 0 = เพิ่งเปิดเครื่อง → reset
+//   ค่าลดลงแต่ยังสูง (เกินกว่าที่นับได้ในเวลาตั้งแต่แถวก่อน) = แถวผิดปกติ เช่นข้อมูลเก่าถูกส่งซ้ำ → ไม่ใช่ reset (ผู้ใช้เลือก 2026-11-11)
 // ตัวนับนับถอยหลัง (ไฟล์บางรุ่น ค่าลดทีละ 1 ต่อวินาทีเป็นปกติ): reset = ค่าลดลงเร็วกว่าการนับปกติมาก
 // คืน Float32Array: 1 = reset, 0 = ปกติ, NaN = ไม่มีค่า
 export function counterResets(times, raw) {
@@ -173,7 +174,9 @@ export function counterResets(times, raw) {
       } else {
         if (prev === 0 && zeroStart >= 0) closeZeroRun(zeroStart, times[i]);
         zeroStart = -1;
-        if (v < prev) isReset = prev + allowance(dt) < max; // ใกล้ค่าเต็ม = นับเกินแล้ววนกลับ
+        // ค่าลดลงแต่ยังสูงเกินกว่าที่นับได้ตั้งแต่แถวก่อน = ไม่ใช่ไฟดับ (เช่น ESP32 ส่งแถวเก่าซ้ำ 6387 → 6386 — D101 2026-11-11 00:08:46)
+        //   หลังไฟดับตัวนับเริ่มจาก 0 → ค่าหลัง reset ต้องไม่เกิน allowance(dt) · ใกล้ค่าเต็ม = นับเกินแล้ววนกลับ
+        if (v < prev) isReset = v <= allowance(dt) && prev + allowance(dt) < max;
       }
     } else if (v < prev) {
       isReset = prev - v > allowance(dt);

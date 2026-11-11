@@ -173,7 +173,7 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:v
 
 <main>
 <header class="hero">
-  <div class="eyebrow">AHTH Graph Generator · Release 3.1 · คู่มือนักพัฒนา</div>
+  <div class="eyebrow">AHTH Graph Generator · Release 3.2 · คู่มือนักพัฒนา</div>
   <h1>สร้างเว็บกราฟอุณหภูมิตู้เย็น <em>ตั้งแต่ไฟล์ log ถึง Monitoring</em></h1>
   <p class="lede">เอกสารสำหรับศึกษาด้วยตัวเองว่าเว็บ <code>ahth-graph-generator.github.io</code> ทำงานอย่างไรและเขียนขึ้นอย่างไร ตัวอย่างโค้ดทุกชิ้นมาจากไฟล์จริงในโปรเจกต์ บท 1–4 เป็นภาพรวมและกฎ บท 5–15 อธิบายหน้าวิเคราะห์ไฟล์ Log ตั้งแต่อ่านไฟล์จนวาดกราฟ บท 16–21 อธิบายระบบ Monitoring (ESP32 → Google Drive → Apps Script → Worker → เว็บ) บท 22–26 เป็นงานประจำ: รันในเครื่อง เพิ่มรายการ ทดสอบ และปล่อยเวอร์ชัน</p>
   <div class="cols" style="margin-top:20px">
@@ -287,7 +287,7 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:v
 <h2><span class="num">04</span>ส่วนที่ทุกหน้าใช้ร่วมกัน</h2>
 <p class="sub">หัวเว็บ ท้ายเว็บ ภาษา โหมดสว่าง/มืด เลขเวอร์ชัน และ time zone ทุกหน้าเรียก <code>initSite()</code> ครั้งเดียวตอนเริ่ม</p>
 <div class="code"><div class="hd"><span>js/site.js · initSite</span><button type="button" data-copy>คัดลอก</button></div><pre><span class="c">// เวอร์ชันที่แสดงบนหัวเว็บ — เปลี่ยนตรงนี้ที่เดียวทุกครั้งที่ release</span>
-<span class="k">export const</span> APP_VERSION = <span class="s">"3.1"</span>;
+<span class="k">export const</span> APP_VERSION = <span class="s">"3.2"</span>;
 
 <span class="k">export function</span> initSite() {
   <span class="k">try</span> {
@@ -1215,7 +1215,7 @@ devices[k] = {
 </ol>
 <div class="code"><div class="hd"><span>terminal</span><button type="button" data-copy>คัดลอก</button></div><pre>git status
 git add -A
-git commit -m "AHTH graph generator website for update to github - Ver. 3.1"
+git commit -m "AHTH graph generator website for update to github - Ver. 3.2"
 git push origin main</pre></div>
 <div class="note"><b class="t">ทำงานกับ Claude Code</b>Claude อ่าน CLAUDE.md ทุกครั้งที่เริ่ม session และเพิ่มกฎใหม่ลงไปเอง แต่ไม่ commit / push เอง ต้องสั่งในแชทครั้งนั้นๆ สั่งงานให้ชัด: ชื่อคอลัมน์ตรงตัว ชื่อที่แสดง สี RGB ตำแหน่ง Y หัวข้อ และความหมายของค่าแต่ละค่า</div>
 </section>
@@ -1234,7 +1234,7 @@ git push origin main</pre></div>
 <details><summary>เลือกช่วงย้อนหลังแล้วขึ้น "ระบบยังไม่รองรับ…"</summary><div>Worker / Apps Script ยังเป็นรุ่นเก่า (ไม่มี <code>/range</code>) → deploy ทั้ง 2 ตัวใหม่ตามบท 18–19</div></details>
 <details><summary>ลอยปากกาแล้วเคอร์เซอร์ไม่ขยับ</summary><div>เปิดด้วย <code>?pentest</code> แล้วลอยปากกา ถ้ากล่องมุมล่างซ้ายไม่ขึ้นอะไร = อุปกรณ์ไม่ส่ง hover</div></details>
 <details><summary>.xlsx อ่านไม่ได้</summary><div>เป็น .xls รุ่นเก่า หรือไฟล์เสีย → Save As เป็น .xlsx หรือ .csv</div></details>
-<footer>เอกสารนี้สรุปจากโค้ด Release 3.1 และ <code>CLAUDE.md</code> · ต้นฉบับ <code>docs/developer-guide.html</code> · ถ้าโค้ดกับเอกสารไม่ตรงกัน ให้เชื่อ CLAUDE.md และโค้ด · เอกสารประกอบใน repo: <code>docs/WORKFLOW.md</code>, <code>docs/GUIDE.md</code>, <code>docs/MONITORING-SETUP.md</code></footer>
+<footer>เอกสารนี้สรุปจากโค้ด Release 3.2 และ <code>CLAUDE.md</code> · ต้นฉบับ <code>docs/developer-guide.html</code> · ถ้าโค้ดกับเอกสารไม่ตรงกัน ให้เชื่อ CLAUDE.md และโค้ด · เอกสารประกอบใน repo: <code>docs/WORKFLOW.md</code>, <code>docs/GUIDE.md</code>, <code>docs/MONITORING-SETUP.md</code></footer>
 </section>
 </main>
 </div>
