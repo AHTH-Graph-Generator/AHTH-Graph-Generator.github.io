@@ -240,7 +240,9 @@ export function counterContinued(profile, prev, next, dt) {
   const expected = rate * dt;
   if (expected < POWER_COUNTER.minCounts) return true;
   const delta = next >= prev ? next - prev : next + max + 1 - prev; // ค่าน้อยลง = นับเกินแล้ววนกลับ
-  return delta >= expected * POWER_COUNTER.gapMatch;
+  // + 1 = ชดเชยการปัดเศษ: ตัวนับเป็นจำนวนเต็ม (นับทีละนาที) หาย 3.7 นาทีเพิ่มได้ 3 หรือ 4 แล้วแต่จังหวะ
+  //   (เคส 2026-11-16 18:00:40 → 18:04:20: 14767 → 14770 เดิมตัดสินเป็นไฟดับผิด — ผู้ใช้ให้แก้ 2026-11-18)
+  return delta + 1 >= expected * POWER_COUNTER.gapMatch;
 }
 
 // สีช่วงขาดบนกราฟ (ข้อความ + แถบพื้นหลังจาง) ผู้ใช้เลือก — ใช้ชุดเดียวทั้ง 2 โหมด, contrast ≥ 3:1 ทั้งพื้นขาวและพื้นมืด
